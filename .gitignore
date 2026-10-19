@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+.pnp
+.pnp.js
+
+# Production build
+frontend/dist/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary and local data
+backend/temp_audio/
+temp_audio/
+*.log
+.env
+.env.local
+
+# Operating System
+.DS_Store
+Thumbs.db
