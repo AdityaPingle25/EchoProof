@@ -49,6 +49,44 @@ export function AnalyzePage() {
     }
   };
 
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const numChannels = 1;
+  const sampleRate = buffer.sampleRate;
+  const channelData = buffer.getChannelData(0);
+  const numSamples = channelData.length;
+  const byteRate = sampleRate * numChannels * 2;
+  const blockAlign = numChannels * 2;
+  const arrayBuffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(arrayBuffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true); // 16-bit
+  writeString(36, 'data');
+  view.setUint32(40, numSamples * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < numSamples; i++) {
+    const s = Math.max(-1, Math.min(1, channelData[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    offset += 2;
+  }
+
+  return new Blob([arrayBuffer], { type: 'audio/wav' });
+}
+
   // Microphone recording
   const startRecording = async () => {
     try {
@@ -62,11 +100,25 @@ export function AnalyzePage() {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
 
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-        const recordedFile = new File([audioBlob], `recording_${Date.now()}.wav`, { type: 'audio/wav' });
-        handleFileSelect(recordedFile);
-        stream.getTracks().forEach((track) => track.stop());
+      mediaRecorder.onstop = async () => {
+        try {
+          const rawBlob = new Blob(audioChunksRef.current, {
+            type: mediaRecorder.mimeType || 'audio/webm',
+          });
+          const arrayBuffer = await rawBlob.arrayBuffer();
+          const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          const audioCtx = new AudioContextClass({ sampleRate: 16000 });
+          const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          const wavBlob = audioBufferToWav(decodedBuffer);
+          const recordedFile = new File([wavBlob], `recording_${Date.now()}.wav`, { type: 'audio/wav' });
+          handleFileSelect(recordedFile);
+          await audioCtx.close();
+        } catch (err: unknown) {
+          console.error('Error encoding recording to WAV:', err);
+          setError('Failed to convert microphone recording to standard WAV.');
+        } finally {
+          stream.getTracks().forEach((track) => track.stop());
+        }
       };
 
       mediaRecorder.start(200);
