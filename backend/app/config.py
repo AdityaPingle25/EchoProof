@@ -15,7 +15,7 @@ DATA_DIR = BASE_DIR / ".." / "research" / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Model
-MODEL_ID = os.getenv("ECHOPROOF_MODEL_ID", "Sara1708/deepfake-audio-wav2vec2")
+MODEL_ID = os.getenv("ECHOPROOF_MODEL_ID", "MelodyMachine/Deepfake-audio-detection-V2")
 MODEL_DEVICE = os.getenv("ECHOPROOF_DEVICE", "cpu")
 MODEL_SAMPLE_RATE = 16000
 MODEL_MAX_DURATION_SEC = 30  # Max chunk duration for model input

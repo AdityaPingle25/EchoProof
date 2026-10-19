@@ -1,0 +1,43 @@
+{
+  "experiment_name": "echoproof_robustness_study",
+  "paper_title": "EchoProof: Robust Audio Deepfake Detection Under Unseen Voice Generators and Real-World Distortions",
+  "model": {
+    "backbone": "facebook/wav2vec2-base",
+    "pooling": "asp",
+    "freeze_layers": 8,
+    "dropout": 0.3,
+    "sample_rate": 16000,
+    "max_duration_sec": 4.0
+  },
+  "training": {
+    "epochs": 15,
+    "batch_size": 16,
+    "learning_rate": 2e-5,
+    "weight_decay": 1e-4,
+    "loss": "focal",
+    "focal_gamma": 2.0,
+    "focal_alpha": 0.5,
+    "augmentation_probability": 0.5,
+    "seed": 42
+  },
+  "generators_protocol": {
+    "training_generators": ["A01", "A02", "A03", "A04", "A05", "A06"],
+    "unseen_evaluation_generators": ["A07", "A08", "A09", "A10", "A11", "A12", "A13", "A14", "A15", "A16", "A17", "A18", "A19", "elevenlabs", "kokoro", "vits"]
+  },
+  "distortions": {
+    "additive_noise_snr_db": [20, 15, 10, 5, 0],
+    "room_impulse_response_rt60_sec": [0.1, 0.2, 0.3, 0.5],
+    "telephony_channels": ["g711_narrowband", "g722_wideband"],
+    "codec_compression": ["mp3_128k", "mp3_64k", "mp3_32k", "mp3_16k"],
+    "clipping_saturation_threshold": [0.9, 0.8, 0.7],
+    "packet_loss_drop_rate": [0.02, 0.05, 0.10]
+  },
+  "metrics": [
+    "equal_error_rate_eer",
+    "min_tdcf",
+    "area_under_roc_auc",
+    "accuracy",
+    "f1_score",
+    "brier_score"
+  ]
+}

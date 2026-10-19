@@ -1,0 +1,11 @@
+audio_file,speaker_id,label,attack_type
+human_LJ001-0002.wav,ljspeech_speaker,bonafide,bonafide_ljspeech
+human_LJ001-0003.wav,ljspeech_speaker,bonafide,bonafide_ljspeech
+human_librispeech_1.flac,librispeech_reader,bonafide,bonafide_librispeech
+human_librispeech_2.flac,librispeech_reader,bonafide,bonafide_librispeech
+human_ljspeech_1.wav,ljspeech_speaker,bonafide,bonafide_ljspeech
+synthetic_deepvoice3_0.wav,deepvoice_tts,spoof,deepvoice3_neural_tts
+synthetic_deepvoice3_1.wav,deepvoice_tts,spoof,deepvoice3_neural_tts
+synthetic_deepvoice3_2.wav,deepvoice_tts,spoof,deepvoice3_neural_tts
+synthetic_deepvoice3_3.wav,deepvoice_tts,spoof,deepvoice3_neural_tts
+synthetic_fastspeech2_0.wav,fastspeech_tts,spoof,fastspeech2_aishell3

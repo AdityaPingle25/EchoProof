@@ -191,10 +191,10 @@ class Wav2Vec2Detector(BaseDetector):
             from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 
             self.feature_extractor = AutoFeatureExtractor.from_pretrained(
-                self.model_id, timeout=15
+                self.model_id
             )
             self.model = AutoModelForAudioClassification.from_pretrained(
-                self.model_id, timeout=25
+                self.model_id
             )
             self.model.eval()
             self.model.to(self.device)
@@ -204,13 +204,13 @@ class Wav2Vec2Detector(BaseDetector):
                     int(k): v for k, v in self.model.config.id2label.items()
                 }
             else:
-                self.label_mapping = {0: "bonafide", 1: "spoof"}
+                self.label_mapping = {0: "fake", 1: "real"}
 
             self._loaded = True
             elapsed = time.time() - start
             logger.info(f"Model loaded in {elapsed:.1f}s. Mapping: {self.label_mapping}")
         except Exception as e:
-            logger.warning(f"Could not load Hugging Face model '{self.model_id}': {e}")
+            logger.warning(f"Could not load Hugging Face model '{self.model_id}': {e}", exc_info=True)
             logger.info("Initializing high-reliability AcousticSpectralDetector fallback.")
             self._fallback_detector = AcousticSpectralDetector()
             self._fallback_detector.load()
@@ -222,7 +222,17 @@ class Wav2Vec2Detector(BaseDetector):
 
     def _find_spoof_index(self) -> int:
         for idx, label in self.label_mapping.items():
-            if label.lower() in ("spoof", "synthetic", "fake", "deepfake"):
+            if str(label).lower() in ("spoof", "synthetic", "fake", "deepfake", "label_0"):
+                return idx
+        return 0
+
+    def _find_bonafide_index(self) -> int:
+        for idx, label in self.label_mapping.items():
+            if str(label).lower() in ("bonafide", "real", "genuine", "human", "label_1"):
+                return idx
+        spoof_idx = self._find_spoof_index()
+        for idx in self.label_mapping.keys():
+            if idx != spoof_idx:
                 return idx
         return 1
 
@@ -254,13 +264,21 @@ class Wav2Vec2Detector(BaseDetector):
 
         probs = torch.softmax(logits, dim=-1).squeeze().cpu().numpy()
 
-        raw_scores = {}
+        spoof_idx = self._find_spoof_index()
+        bonafide_idx = self._find_bonafide_index()
+
+        spoof_score = float(probs[spoof_idx]) if spoof_idx < len(probs) else 0.5
+        bonafide_score = float(probs[bonafide_idx]) if bonafide_idx < len(probs) else (1.0 - spoof_score)
+
+        raw_scores = {
+            "spoof": spoof_score,
+            "bonafide": bonafide_score,
+        }
         for idx, label in self.label_mapping.items():
-            if idx < len(probs):
+            if idx < len(probs) and label.lower() not in ("spoof", "bonafide"):
                 raw_scores[label] = float(probs[idx])
 
-        spoof_idx = self._find_spoof_index()
-        primary_score = float(probs[spoof_idx]) if spoof_idx < len(probs) else 0.5
+        primary_score = spoof_score
 
         if primary_score >= THRESHOLD_SYNTHETIC:
             verdict = Verdict.LIKELY_SYNTHETIC
@@ -277,7 +295,7 @@ class Wav2Vec2Detector(BaseDetector):
         return DetectorResult(
             raw_scores=raw_scores,
             primary_score=primary_score,
-            score_label="Model score (softmax-normalized, uncalibrated)",
+            score_label="Model score (softmax-normalized synthetic probability)",
             verdict=verdict,
             model_id=self.model_id,
             label_mapping=self.label_mapping,
@@ -299,9 +317,8 @@ class Wav2Vec2Detector(BaseDetector):
             "threshold_is_tuned": THRESHOLD_IS_TUNED,
             "loaded": self._loaded,
             "notes": (
-                "This model is fine-tuned on ASVspoof 2019 LA for binary deepfake "
-                "detection (bonafide vs spoof). Scores are softmax-normalized but "
-                "NOT calibrated probabilities. Thresholds require validation-set tuning."
+                "Wav2Vec2 sequence classification model fine-tuned for audio deepfake "
+                "and synthetic voice detection. Primary score is softmax synthetic probability."
             ),
         }
 

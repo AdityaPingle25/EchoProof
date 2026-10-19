@@ -141,51 +141,22 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
     }
   };
 
-  // Load a synthetic or genuine sample for quick testing
-  const loadSampleAudio = (type: 'genuine' | 'synthetic') => {
-    // Generate a simple synthetic tone wav client-side for demo
-    const sampleRate = 16000;
-    const duration = 2;
-    const numSamples = sampleRate * duration;
-    const buffer = new ArrayBuffer(44 + numSamples * 2);
-    const view = new DataView(buffer);
-
-    const writeString = (offset: number, string: string) => {
-      for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
+  // Load real speech recordings for genuine vs synthetic evaluation
+  const loadSampleAudio = async (type: 'genuine' | 'synthetic') => {
+    try {
+      setError(null);
+      const filename = type === 'genuine' ? 'sample_genuine_human.wav' : 'sample_synthetic_tts.wav';
+      const response = await fetch(`/samples/${filename}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load sample: ${response.statusText}`);
       }
-    };
-
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + numSamples * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // PCM
-    view.setUint16(22, 1, true); // Mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, numSamples * 2, true);
-
-    const freq = type === 'synthetic' ? 440 : 220;
-    for (let i = 0; i < numSamples; i++) {
-      const t = i / sampleRate;
-      let sample = Math.sin(2 * Math.PI * freq * t);
-      if (type === 'synthetic') {
-        sample += 0.3 * Math.sin(2 * Math.PI * 880 * t) + 0.1 * (Math.random() - 0.5);
-      } else {
-        sample *= Math.exp(-t * 0.5);
-      }
-      const s = Math.max(-1, Math.min(1, sample));
-      view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      const blob = await response.blob();
+      const sampleFile = new File([blob], filename, { type: 'audio/wav' });
+      handleFileSelect(sampleFile);
+    } catch (err: unknown) {
+      console.error('Failed to load sample:', err);
+      setError('Failed to load sample audio.');
     }
-
-    const blob = new Blob([buffer], { type: 'audio/wav' });
-    const sampleFile = new File([blob], `sample_${type}_voice.wav`, { type: 'audio/wav' });
-    handleFileSelect(sampleFile);
   };
 
   const handleAnalyze = async () => {

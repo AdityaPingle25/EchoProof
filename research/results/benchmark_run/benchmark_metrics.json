@@ -1,0 +1,84 @@
+{
+  "model_id": "MelodyMachine/Deepfake-audio-detection-V2",
+  "clean_baseline": {
+    "accuracy": 0.125,
+    "f1": 0.2222222222222222,
+    "auc_roc": 0.0,
+    "eer": 0.9999999999987873
+  },
+  "generators": {
+    "A01": {
+      "samples": 20,
+      "eer": 0.9999999999987873,
+      "auc_roc": 0.0
+    }
+  },
+  "distortions": {
+    "noise_snr_20db": {
+      "eer": 0.949999999999983,
+      "auc_roc": 0.0075000000000000015,
+      "accuracy": 0.5,
+      "eer_degradation": -0.049999999998804334
+    },
+    "noise_snr_10db": {
+      "eer": 0.8500000000009373,
+      "auc_roc": 0.0425,
+      "accuracy": 0.5,
+      "eer_degradation": -0.14999999999784996
+    },
+    "noise_snr_5db": {
+      "eer": 0.6,
+      "auc_roc": 0.36250000000000004,
+      "accuracy": 0.5,
+      "eer_degradation": -0.3999999999987873
+    },
+    "telephony_g711_narrowband": {
+      "eer": 0.9999999999987873,
+      "auc_roc": 0.0,
+      "accuracy": 0.0,
+      "eer_degradation": 0.0
+    },
+    "telephony_g722_wideband": {
+      "eer": 0.9999999999987873,
+      "auc_roc": 0.0,
+      "accuracy": 0.0,
+      "eer_degradation": 0.0
+    },
+    "reverb_rt60_0.2s": {
+      "eer": 0.9999999999987873,
+      "auc_roc": 0.0,
+      "accuracy": 0.125,
+      "eer_degradation": 0.0
+    },
+    "reverb_rt60_0.5s": {
+      "eer": 0.9999999999987873,
+      "auc_roc": 0.0,
+      "accuracy": 0.125,
+      "eer_degradation": 0.0
+    },
+    "codec_mp3_medium": {
+      "eer": 0.9999999999987873,
+      "auc_roc": 0.0,
+      "accuracy": 0.125,
+      "eer_degradation": 0.0
+    },
+    "codec_mp3_low": {
+      "eer": 0.7500000000002338,
+      "auc_roc": 0.1875,
+      "accuracy": 0.375,
+      "eer_degradation": -0.2499999999985535
+    },
+    "clipping_80pct": {
+      "eer": 0.9999999999987873,
+      "auc_roc": 0.0,
+      "accuracy": 0.125,
+      "eer_degradation": 0.0
+    },
+    "packet_loss_5pct": {
+      "eer": 0.9999999999987873,
+      "auc_roc": 0.0,
+      "accuracy": 0.05,
+      "eer_degradation": 0.0
+    }
+  }
+}

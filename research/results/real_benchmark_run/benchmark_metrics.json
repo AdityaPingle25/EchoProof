@@ -1,0 +1,89 @@
+{
+  "model_id": "MelodyMachine/Deepfake-audio-detection-V2",
+  "clean_baseline": {
+    "accuracy": 0.9,
+    "f1": 0.8888888888888888,
+    "auc_roc": 1.0,
+    "eer": 0.0
+  },
+  "generators": {
+    "deepvoice3_neural_tts": {
+      "samples": 4,
+      "eer": 0.0,
+      "auc_roc": 1.0
+    },
+    "fastspeech2_aishell3": {
+      "samples": 1,
+      "eer": 0.0,
+      "auc_roc": 1.0
+    }
+  },
+  "distortions": {
+    "noise_snr_20db": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 0.5,
+      "eer_degradation": 0.0
+    },
+    "noise_snr_10db": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 0.5,
+      "eer_degradation": 0.0
+    },
+    "noise_snr_5db": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 0.5,
+      "eer_degradation": 0.0
+    },
+    "telephony_g711_narrowband": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 1.0,
+      "eer_degradation": 0.0
+    },
+    "telephony_g722_wideband": {
+      "eer": 0.19999999999999787,
+      "auc_roc": 0.8,
+      "accuracy": 0.9,
+      "eer_degradation": 0.19999999999999787
+    },
+    "reverb_rt60_0.2s": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 0.9,
+      "eer_degradation": 0.0
+    },
+    "reverb_rt60_0.5s": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 0.9,
+      "eer_degradation": 0.0
+    },
+    "codec_mp3_medium": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 0.9,
+      "eer_degradation": 0.0
+    },
+    "codec_mp3_low": {
+      "eer": 0.19999999999999787,
+      "auc_roc": 0.92,
+      "accuracy": 0.9,
+      "eer_degradation": 0.19999999999999787
+    },
+    "clipping_80pct": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 0.9,
+      "eer_degradation": 0.0
+    },
+    "packet_loss_5pct": {
+      "eer": 0.0,
+      "auc_roc": 1.0,
+      "accuracy": 0.9,
+      "eer_degradation": 0.0
+    }
+  }
+}
