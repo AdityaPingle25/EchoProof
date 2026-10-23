@@ -11,7 +11,6 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 from app.config import (
     MODEL_SAMPLE_RATE, MODEL_CHUNK_DURATION_SEC,
-    THRESHOLD_GENUINE, THRESHOLD_SYNTHETIC, THRESHOLD_IS_TUNED,
     RESULTS_DIR,
 )
 from app.schemas import (
@@ -38,8 +37,9 @@ audio_transformer = AudioTransformer()
 @router.get("/health", response_model=HealthResponse)
 async def health():
     detector = get_detector()
+    info = detector.get_model_info()
     return HealthResponse(
-        model_loaded=detector.is_loaded(),
+        model_loaded=detector.is_loaded() and info["model_type"] != "Detector unavailable (neutral abstention)",
         timestamp=time.time(),
     )
 
@@ -55,9 +55,9 @@ async def model_info():
         sample_rate=info["sample_rate"],
         max_duration_sec=300,
         chunk_duration_sec=MODEL_CHUNK_DURATION_SEC,
-        threshold_genuine=THRESHOLD_GENUINE,
-        threshold_synthetic=THRESHOLD_SYNTHETIC,
-        threshold_is_tuned=THRESHOLD_IS_TUNED,
+        threshold_genuine=info["threshold_genuine"],
+        threshold_synthetic=info["threshold_synthetic"],
+        threshold_is_tuned=info["threshold_is_tuned"],
         label_mapping=info["label_mapping"],
         notes=info["notes"],
     )
@@ -71,6 +71,7 @@ async def analyze_audio(file: UploadFile = File(...)):
     detector = get_detector()
     if not detector.is_loaded():
         raise HTTPException(503, "Model not loaded. Backend is starting up.")
+    detector_info = detector.get_model_info()
 
     start_time = time.time()
     job_manager = get_job_manager()
@@ -135,9 +136,11 @@ async def analyze_audio(file: UploadFile = File(...)):
             )
 
         # Apply decision thresholds
-        if final_score >= THRESHOLD_SYNTHETIC:
+        threshold_synthetic = float(detector_info["threshold_synthetic"])
+        threshold_genuine = float(detector_info["threshold_genuine"])
+        if final_score >= threshold_synthetic:
             verdict = Verdict.LIKELY_SYNTHETIC
-        elif final_score <= THRESHOLD_GENUINE:
+        elif final_score <= threshold_genuine:
             verdict = Verdict.LIKELY_GENUINE
         else:
             verdict = Verdict.UNCERTAIN
@@ -156,11 +159,11 @@ async def analyze_audio(file: UploadFile = File(...)):
             raw_scores=chunk_results[0].raw_scores if len(chunk_results) == 1 else None,
             chunk_results=chunk_results if len(chunk_results) > 1 else None,
             aggregation_method=aggregation,
-            model_id=detector.get_model_info()["model_id"],
-            model_device=detector.get_model_info()["device"],
-            threshold_genuine=THRESHOLD_GENUINE,
-            threshold_synthetic=THRESHOLD_SYNTHETIC,
-            threshold_is_tuned=THRESHOLD_IS_TUNED,
+            model_id=detector_info["model_id"],
+            model_device=detector_info["device"],
+            threshold_genuine=threshold_genuine,
+            threshold_synthetic=threshold_synthetic,
+            threshold_is_tuned=detector_info["threshold_is_tuned"],
             audio_metadata=metadata,
             waveform_data=waveform_data,
             spectrogram_data=spectrogram_data,

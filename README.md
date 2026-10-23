@@ -24,8 +24,9 @@ Designed for college project reviews, academic viva evaluations, and scientific 
 ## 🌟 Key Capabilities
 
 ### 1. Pretrained AI Inference Engine
-- **Architecture**: Self-supervised `wav2vec2-base` fine-tuned on the ASVspoof 2019 Logical Access (LA) benchmark.
-- **Resilient Fallback**: Integrated `AcousticSpectralDetector` providing continuous forensic scoring even when disconnected from Hugging Face or offline.
+- **Default model**: Hugging Face `MelodyMachine/Deepfake-audio-detection-V2` audio classifier.
+- **Trained project checkpoints**: Train from a source-diverse manifest, then point the backend at `best_model_eer.pt` with `ECHOPROOF_CHECKPOINT`.
+- **Offline behavior**: If model weights cannot load, EchoProof abstains and reports `Uncertain`; spectral heuristics are not used as proof of authenticity.
 - **Temporal Window Analysis**: Slices recordings into uniform 4-second chunk windows, identifying localized synthetic splices and vocoder insertions.
 - **Dynamic Thresholding**: Separate thresholds for authentic human speech, uncertain regions, and synthetic voice.
 
@@ -123,7 +124,10 @@ cd frontend
 npm run build
 ```
 
-### 4. Android Native Build (Capacitor)
+### 4. Training with real speech data
+See [docs/TRAINING.md](docs/TRAINING.md) for the recommended public corpora, leakage-safe split requirements, training command, and checkpoint setup. The bundled sample audio is for UI demonstrations and is not suitable for training or accuracy claims.
+
+### 5. Android Native Build (Capacitor)
 ```bash
 cd frontend
 npm run build

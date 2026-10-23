@@ -59,21 +59,33 @@ class ModelInferenceWrapper:
     """Unified inference interface for either custom EchoProof checkpoint or Hugging Face model."""
 
     def __init__(self, model_path_or_id: str, device: str = "cpu"):
-        self.device = torch.device(device if torch.cuda.is_available() and device == "cuda" else "cpu")
+        if device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("CUDA was requested but is unavailable. Choose --device cpu or enable a CUDA GPU.")
+        self.device = torch.device(device)
         self.is_custom = model_path_or_id.endswith(".pt") or model_path_or_id.endswith(".pth")
         self.model_path_or_id = model_path_or_id
+        self.sample_rate = 16000
+        self.max_duration_sec = 4.0
 
         if self.is_custom:
             logger.info(f"Loading custom checkpoint: {model_path_or_id}")
-            checkpoint = torch.load(model_path_or_id, map_location=self.device)
+            checkpoint = torch.load(model_path_or_id, map_location=self.device, weights_only=False)
+            if not isinstance(checkpoint, dict) or "model_state_dict" not in checkpoint:
+                raise ValueError("Custom checkpoint must contain model_state_dict from research/train.py.")
             config = checkpoint.get("config", {})
             backbone_id = config.get("backbone_id", "facebook/wav2vec2-base")
             pooling = config.get("pooling", "asp")
-            self.model = EchoProofClassifier(backbone_id=backbone_id, pooling=pooling)
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+            self.max_duration_sec = float(config.get("max_duration_sec", 4.0))
+            self.model = EchoProofClassifier(
+                backbone_id=backbone_id,
+                freeze_backbone_layers=0,
+                pooling=pooling,
+                dropout=float(config.get("dropout", 0.3)),
+                backbone_config=checkpoint.get("backbone_config"),
+            )
+            self.model.load_state_dict(checkpoint["model_state_dict"], strict=True)
             self.model.to(self.device).eval()
-            from transformers import AutoFeatureExtractor
-            self.feature_extractor = AutoFeatureExtractor.from_pretrained(backbone_id)
+            self.feature_extractor = None
             self.spoof_idx = 1
         else:
             logger.info(f"Loading Hugging Face model: {model_path_or_id}")
@@ -82,31 +94,52 @@ class ModelInferenceWrapper:
             self.model = AutoModelForAudioClassification.from_pretrained(model_path_or_id)
             self.model.to(self.device).eval()
             # Determine spoof index from config
-            self.spoof_idx = 0
-            if hasattr(self.model.config, "id2label"):
-                for idx, label in self.model.config.id2label.items():
-                    if str(label).lower() in ("spoof", "synthetic", "fake", "deepfake", "label_0"):
-                        self.spoof_idx = int(idx)
-                        break
+            label_mapping = getattr(self.model.config, "id2label", {}) or {}
+            if len(label_mapping) != 2:
+                raise ValueError(f"Expected a binary audio classifier, got labels: {label_mapping}")
+            spoof_labels = {"spoof", "synthetic", "fake", "deepfake", "manipulated", "generated"}
+            genuine_labels = {"bonafide", "bona_fide", "real", "genuine", "human", "authentic"}
+            spoof_indices = [int(idx) for idx, label in label_mapping.items() if str(label).strip().lower().replace("-", "_") in spoof_labels]
+            genuine_indices = [int(idx) for idx, label in label_mapping.items() if str(label).strip().lower().replace("-", "_") in genuine_labels]
+            if len(spoof_indices) != 1 or len(genuine_indices) != 1 or spoof_indices[0] == genuine_indices[0]:
+                raise ValueError(f"Cannot identify unique fake and genuine labels: {label_mapping}")
+            self.spoof_idx = spoof_indices[0]
 
     def predict_audio(self, audio: np.ndarray, sr: int = 16000) -> float:
         """Runs inference and returns spoof probability (0.0 to 1.0)."""
-        inputs = self.feature_extractor(
-            audio, sampling_rate=sr, return_tensors="pt", padding=True
-        )
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        audio = np.asarray(audio, dtype=np.float32).squeeze()
+        if audio.ndim != 1 or audio.size == 0 or not np.isfinite(audio).all():
+            raise ValueError("Expected one non-empty finite mono waveform.")
+        if sr <= 0:
+            raise ValueError("Sample rate must be positive.")
+        if sr != self.sample_rate:
+            import scipy.signal
+            target_samples = max(1, int(len(audio) * self.sample_rate / sr))
+            audio = scipy.signal.resample(audio, target_samples).astype(np.float32)
+            sr = self.sample_rate
 
         with torch.no_grad():
             if self.is_custom:
-                waveforms = inputs["input_values"]
+                target_samples = int(self.sample_rate * self.max_duration_sec)
+                if len(audio) < target_samples:
+                    audio = np.pad(audio, (0, target_samples - len(audio)))
+                elif len(audio) > target_samples:
+                    start = (len(audio) - target_samples) // 2
+                    audio = audio[start:start + target_samples]
+                waveforms = torch.from_numpy(audio).unsqueeze(0).to(self.device)
                 logits = self.model(waveforms)
             else:
+                inputs = self.feature_extractor(
+                    audio, sampling_rate=sr, return_tensors="pt", padding=True
+                )
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
                 outputs = self.model(**inputs)
                 logits = outputs.logits
 
-        probs = torch.softmax(logits, dim=-1).squeeze().cpu().numpy()
-        spoof_prob = float(probs[self.spoof_idx])
-        return spoof_prob
+        probs = torch.softmax(logits, dim=-1)[0].cpu().numpy()
+        if self.spoof_idx >= len(probs):
+            raise ValueError(f"Model returned {len(probs)} classes; fake class index is {self.spoof_idx}.")
+        return float(probs[self.spoof_idx])
 
 
 def run_benchmark(
@@ -133,7 +166,7 @@ def run_benchmark(
                 label_col = c
                 break
     if generator_col not in df.columns:
-        for c in ["attack_type", "generator", "system_id", "model", "source"]:
+        for c in ["attack_type", "generator", "system_id", "model"]:
             if c in df.columns:
                 generator_col = c
                 break
@@ -150,7 +183,14 @@ def run_benchmark(
             continue
 
         raw_label = str(row[label_col]).lower().strip()
-        binary_label = 0 if raw_label in ("bonafide", "real", "genuine", "0") else 1
+        genuine_labels = {"bonafide", "bona_fide", "real", "genuine", "human", "0", "0.0"}
+        spoof_labels = {"spoof", "synthetic", "fake", "deepfake", "generated", "1", "1.0"}
+        if raw_label in genuine_labels:
+            binary_label = 0
+        elif raw_label in spoof_labels:
+            binary_label = 1
+        else:
+            raise ValueError(f"Unknown benchmark label '{row[label_col]}'.")
         generator = str(row[generator_col]) if generator_col in row else ("bonafide" if binary_label == 0 else "unknown")
 
         try:
@@ -172,6 +212,8 @@ def run_benchmark(
         })
 
     logger.info(f"Loaded {len(samples)} valid audio samples for benchmarking.")
+    if not samples or {sample["label"] for sample in samples} != {0, 1}:
+        raise ValueError("Benchmark data must contain at least one readable sample from each class.")
 
     # 1. Clean Baseline Evaluation
     clean_scores = []

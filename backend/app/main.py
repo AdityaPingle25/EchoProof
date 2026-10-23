@@ -36,7 +36,10 @@ async def lifespan(app: FastAPI):
         elapsed = time.time() - start
         detector = get_detector()
         info = detector.get_model_info()
-        logger.info(f"Model ready: {info['model_id']} on {info['device']} ({elapsed:.1f}s)")
+        if info["model_type"] == "Detector unavailable (neutral abstention)":
+            logger.error("No speech detection model loaded; analysis will return uncertain results.")
+        else:
+            logger.info(f"Model ready: {info['model_id']} on {info['device']} ({elapsed:.1f}s)")
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
         logger.error("Backend will start but inference endpoints will return 503.")

@@ -13,13 +13,14 @@ import os
 import random
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from sklearn.metrics import roc_curve, roc_auc_score, accuracy_score, f1_score
 from scipy.optimize import brentq
 from scipy.interpolate import interp1d
@@ -118,9 +119,52 @@ def evaluate(
     }
 
 
+def calibrate_thresholds(
+    model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    target_error_rate: float = 0.05,
+) -> dict[str, float | bool]:
+    """Set a conservative abstention band from held-out validation scores."""
+    model.eval()
+    all_scores: list[float] = []
+    all_labels: list[int] = []
+    with torch.no_grad():
+        for batch in loader:
+            logits = model(batch["waveform"].to(device))
+            spoof_scores = torch.softmax(logits, dim=-1)[:, 1].cpu().numpy()
+            all_scores.extend(float(value) for value in spoof_scores)
+            all_labels.extend(int(value) for value in batch["label"].cpu().numpy())
+
+    scores = np.asarray(all_scores, dtype=np.float64)
+    labels = np.asarray(all_labels, dtype=np.int64)
+    genuine_scores = scores[labels == 0]
+    spoof_scores = scores[labels == 1]
+    if genuine_scores.size == 0 or spoof_scores.size == 0:
+        raise ValueError("Threshold calibration requires genuine and spoof validation examples.")
+
+    threshold_genuine = float(np.quantile(spoof_scores, target_error_rate))
+    threshold_synthetic = float(np.quantile(genuine_scores, 1.0 - target_error_rate))
+    if threshold_genuine > threshold_synthetic:
+        # The class distributions overlap too much for a confident abstention band.
+        fpr, tpr, candidates = roc_curve(labels, scores, pos_label=1)
+        finite = np.isfinite(candidates)
+        eer_index = np.flatnonzero(finite)[np.argmin(np.abs(fpr[finite] - (1.0 - tpr[finite])))]
+        threshold_genuine = threshold_synthetic = float(candidates[eer_index])
+
+    return {
+        "threshold_genuine": threshold_genuine,
+        "threshold_synthetic": threshold_synthetic,
+        "threshold_is_tuned": True,
+        "target_error_rate": target_error_rate,
+    }
+
+
 def train(args):
     set_seed(args.seed)
-    device = torch.device(args.device if torch.cuda.is_available() and args.device == "cuda" else "cpu")
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is unavailable. Choose --device cpu or enable a CUDA GPU.")
+    device = torch.device(args.device)
     logger.info(f"Using device: {device}")
 
     output_dir = Path(args.output_dir)
@@ -162,13 +206,36 @@ def train(args):
         augmentation_prob=0.0,
     )
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=0,
-        pin_memory=(device.type == "cuda"),
-    )
+    if args.domain_balance_power > 0:
+        domain_counts = Counter(train_dataset.domains)
+        sample_weights = [
+            1.0 / (domain_counts[domain] ** args.domain_balance_power)
+            for domain in train_dataset.domains
+        ]
+        train_sampler = WeightedRandomSampler(
+            torch.as_tensor(sample_weights, dtype=torch.double),
+            num_samples=len(train_dataset),
+            replacement=True,
+        )
+        logger.info(
+            "Balancing training examples across %d source/generator domains (power=%.2f)",
+            len(domain_counts), args.domain_balance_power,
+        )
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=args.batch_size,
+            sampler=train_sampler,
+            num_workers=0,
+            pin_memory=(device.type == "cuda"),
+        )
+    else:
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=0,
+            pin_memory=(device.type == "cuda"),
+        )
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
@@ -253,9 +320,11 @@ def train(args):
                 {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
+                    "backbone_config": model.backbone.config.to_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "val_eer": best_val_eer,
                     "config": vars(args),
+                    "label_mapping": {0: "bonafide", 1: "spoof"},
                 },
                 checkpoint_path,
             )
@@ -268,6 +337,20 @@ def train(args):
 
     total_time = time.time() - start_time
     logger.info(f"Training completed in {total_time / 60:.2f} minutes. Best Val EER: {best_val_eer * 100:.2f}%")
+
+    best_checkpoint_path = output_dir / "best_model_eer.pt"
+    if best_checkpoint_path.is_file():
+        best_checkpoint = torch.load(best_checkpoint_path, map_location=device, weights_only=False)
+        model.load_state_dict(best_checkpoint["model_state_dict"], strict=True)
+        calibration = calibrate_thresholds(model, val_loader, device)
+        best_checkpoint.update(calibration)
+        torch.save(best_checkpoint, best_checkpoint_path)
+        with open(output_dir / "decision_thresholds.json", "w", encoding="utf-8") as f:
+            json.dump(calibration, f, indent=2)
+        logger.info(
+            "Validation-calibrated verdict thresholds: genuine<=%.4f, synthetic>=%.4f",
+            calibration["threshold_genuine"], calibration["threshold_synthetic"],
+        )
 
 
 def parse_args():
@@ -291,6 +374,10 @@ def parse_args():
     parser.add_argument("--focal_gamma", type=float, default=2.0, help="Focal loss gamma")
 
     parser.add_argument("--augment_prob", type=float, default=0.5, help="Distortion augmentation probability")
+    parser.add_argument(
+        "--domain_balance_power", type=float, default=0.5,
+        help="Inverse-frequency sampling exponent by source/generator (0 disables balancing).",
+    )
     parser.add_argument("--max_duration_sec", type=float, default=4.0, help="Audio input length in seconds")
 
     parser.add_argument("--filename_col", type=str, default="filename", help="CSV filename column")

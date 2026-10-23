@@ -20,16 +20,22 @@ export function AnalyzePage() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const pcmChunksRef = useRef<Float32Array[]>([]);
   const timerRef = useRef<number | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
-  // Clean up object URLs
+  // Clean up object URLs and active recording resources
   useEffect(() => {
     return () => {
       if (audioUrl) URL.revokeObjectURL(audioUrl);
       if (timerRef.current) clearInterval(timerRef.current);
+      if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(() => {});
+      }
     };
   }, [audioUrl]);
 
@@ -49,15 +55,13 @@ export function AnalyzePage() {
     }
   };
 
-function audioBufferToWav(buffer: AudioBuffer): Blob {
+function pcmToWav(samples: Float32Array, sampleRate: number): Blob {
   const numChannels = 1;
-  const sampleRate = buffer.sampleRate;
-  const channelData = buffer.getChannelData(0);
-  const numSamples = channelData.length;
+  const numSamples = samples.length;
   const byteRate = sampleRate * numChannels * 2;
   const blockAlign = numChannels * 2;
-  const arrayBuffer = new ArrayBuffer(44 + numSamples * 2);
-  const view = new DataView(arrayBuffer);
+  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(buffer);
 
   const writeString = (offset: number, str: string) => {
     for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
@@ -68,7 +72,7 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
   writeString(8, 'WAVE');
   writeString(12, 'fmt ');
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
+  view.setUint16(20, 1, true); // PCM format
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
@@ -79,65 +83,129 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
 
   let offset = 44;
   for (let i = 0; i < numSamples; i++) {
-    const s = Math.max(-1, Math.min(1, channelData[i]));
+    const s = Math.max(-1, Math.min(1, samples[i]));
     view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
     offset += 2;
   }
 
-  return new Blob([arrayBuffer], { type: 'audio/wav' });
+  return new Blob([buffer], { type: 'audio/wav' });
 }
 
-  // Microphone recording
+  // Direct PCM Microphone recording via AudioContext (avoids WebM container/codec decodeAudioData failures)
   const startRecording = async () => {
     try {
       setError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone recording is not supported in this browser.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          // Preserve replay/channel artifacts instead of letting browser DSP rewrite them.
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      streamRef.current = stream;
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const audioCtx = new AudioContextClass();
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      audioContextRef.current = audioCtx;
+      pcmChunksRef.current = [];
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        const inputData = e.inputBuffer.getChannelData(0);
+        pcmChunksRef.current.push(new Float32Array(inputData));
       };
 
-      mediaRecorder.onstop = async () => {
-        try {
-          const rawBlob = new Blob(audioChunksRef.current, {
-            type: mediaRecorder.mimeType || 'audio/webm',
-          });
-          const arrayBuffer = await rawBlob.arrayBuffer();
-          const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-          const audioCtx = new AudioContextClass({ sampleRate: 16000 });
-          const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-          const wavBlob = audioBufferToWav(decodedBuffer);
-          const recordedFile = new File([wavBlob], `recording_${Date.now()}.wav`, { type: 'audio/wav' });
-          handleFileSelect(recordedFile);
-          await audioCtx.close();
-        } catch (err: unknown) {
-          console.error('Error encoding recording to WAV:', err);
-          setError('Failed to convert microphone recording to standard WAV.');
-        } finally {
-          stream.getTracks().forEach((track) => track.stop());
-        }
-      };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
 
-      mediaRecorder.start(200);
       setIsRecording(true);
       setRecordingDuration(0);
       timerRef.current = window.setInterval(() => {
         setRecordingDuration((prev) => prev + 1);
       }, 1000);
     } catch (err: unknown) {
+      if (processorRef.current) {
+        processorRef.current.disconnect();
+        processorRef.current = null;
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(() => {});
+      }
+      audioContextRef.current = null;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      console.error('Error accessing microphone:', err);
       setError('Microphone access denied or not supported by browser.');
-      console.error(err);
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      if (timerRef.current) clearInterval(timerRef.current);
+  const stopRecording = async () => {
+    if (!isRecording) return;
+    setIsRecording(false);
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    try {
+      if (processorRef.current) {
+        processorRef.current.disconnect();
+        processorRef.current = null;
+      }
+
+      const audioCtx = audioContextRef.current;
+      const sampleRate = audioCtx ? audioCtx.sampleRate : 44100;
+
+      if (audioCtx && audioCtx.state !== 'closed') {
+        await audioCtx.close();
+      }
+      audioContextRef.current = null;
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+
+      const chunks = pcmChunksRef.current;
+      if (!chunks || chunks.length === 0) {
+        setError('No audio captured. Please speak into the microphone and try again.');
+        return;
+      }
+
+      let totalLength = 0;
+      for (const chunk of chunks) totalLength += chunk.length;
+
+      if (totalLength < sampleRate * 0.5) {
+        setError('Recording was too short. Please speak for at least 1-2 seconds.');
+        return;
+      }
+
+      const mergedSamples = new Float32Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        mergedSamples.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      const wavBlob = pcmToWav(mergedSamples, sampleRate);
+      const recordedFile = new File([wavBlob], `recording_${Date.now()}.wav`, { type: 'audio/wav' });
+      handleFileSelect(recordedFile);
+    } catch (err: unknown) {
+      console.error('Error finalizing recording:', err);
+      setError('Failed to process microphone recording. Please try again.');
     }
   };
 

@@ -16,6 +16,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Model
 MODEL_ID = os.getenv("ECHOPROOF_MODEL_ID", "MelodyMachine/Deepfake-audio-detection-V2")
+MODEL_CHECKPOINT = os.getenv("ECHOPROOF_CHECKPOINT", "").strip()
 MODEL_DEVICE = os.getenv("ECHOPROOF_DEVICE", "cpu")
 MODEL_SAMPLE_RATE = 16000
 MODEL_MAX_DURATION_SEC = 30  # Max chunk duration for model input
@@ -36,7 +37,10 @@ THRESHOLD_SYNTHETIC = float(os.getenv("ECHOPROOF_THRESHOLD_SYNTHETIC", "0.65"))
 THRESHOLD_IS_TUNED = os.getenv("ECHOPROOF_THRESHOLD_TUNED", "false").lower() == "true"
 
 # Server
-CORS_ORIGINS = os.getenv("ECHOPROOF_CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+CORS_ORIGINS = os.getenv(
+    "ECHOPROOF_CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000",
+).split(",")
 MAX_CONCURRENT_JOBS = int(os.getenv("ECHOPROOF_MAX_JOBS", "3"))
 
 # Robustness lab defaults

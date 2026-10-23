@@ -53,10 +53,14 @@ class EchoProofClassifier(nn.Module):
         pooling: str = "asp",
         dropout: float = 0.3,
         num_classes: int = 2,
+        backbone_config: Optional[dict] = None,
     ):
         super().__init__()
         self.backbone_id = backbone_id
-        self.backbone = Wav2Vec2Model.from_pretrained(backbone_id)
+        if backbone_config is None:
+            self.backbone = Wav2Vec2Model.from_pretrained(backbone_id)
+        else:
+            self.backbone = Wav2Vec2Model(Wav2Vec2Config.from_dict(backbone_config))
 
         # Freeze lower feature extractor / CNN layers
         self.backbone.feature_extractor._freeze_parameters()
