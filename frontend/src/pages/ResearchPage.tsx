@@ -100,58 +100,75 @@ export function ResearchPage() {
     }
   };
 
-  // Demo synthetic benchmark loader if no files are on disk yet
-  const loadSyntheticBenchmarkDemo = () => {
-    const demoMetrics: MetricsResult = {
-      accuracy: 0.942,
-      precision: 0.951,
-      recall: 0.933,
-      f1: 0.941,
-      roc_auc: 0.978,
-      eer: 0.058,
-      fpr: 0.048,
-      fnr: 0.067,
-      confusion_matrix: [[95, 5], [7, 93]],
-      threshold_used: 0.52,
-      threshold_source: 'validation_eer_tuning',
-      n_samples: 200,
-      n_genuine: 100,
-      n_synthetic: 100,
+  // Audited 12-condition acoustic distortion stress-test results from automated_pilot
+  const AUDITED_DISTORTIONS = [
+    { name: 'Clean Baseline', eer: '22.00%', auc: '82.36%', acc: '70.00%', f1: '0.5714', deltaEer: '--' },
+    { name: 'Additive Noise (SNR 20 dB)', eer: '74.00%', auc: '23.78%', acc: '50.00%', f1: '0.0000', deltaEer: '+52.00 pp' },
+    { name: 'Additive Noise (SNR 10 dB)', eer: '58.00%', auc: '41.42%', acc: '50.00%', f1: '0.0000', deltaEer: '+36.00 pp' },
+    { name: 'Additive Noise (SNR 5 dB)', eer: '54.00%', auc: '51.58%', acc: '50.00%', f1: '0.0000', deltaEer: '+32.00 pp' },
+    { name: 'Telephony Narrowband (300–3400 Hz)', eer: '12.00%', auc: '97.70%', acc: '87.00%', f1: '0.8850', deltaEer: '-10.00 pp' },
+    { name: 'Telephony Wideband (50–7000 Hz)', eer: '16.00%', auc: '89.10%', acc: '79.00%', f1: '0.7342', deltaEer: '-6.00 pp' },
+    { name: 'Room Reverberation (RT60 0.2s)', eer: '38.00%', auc: '64.68%', acc: '68.00%', f1: '0.5294', deltaEer: '+16.00 pp' },
+    { name: 'Room Reverberation (RT60 0.5s)', eer: '36.00%', auc: '66.16%', acc: '68.00%', f1: '0.5294', deltaEer: '+14.00 pp' },
+    { name: 'Codec Emulation (Medium)', eer: '22.00%', auc: '83.44%', acc: '60.00%', f1: '0.3333', deltaEer: '0.00 pp' },
+    { name: 'Codec Emulation (Low)', eer: '24.00%', auc: '86.76%', acc: '55.00%', f1: '0.1818', deltaEer: '+2.00 pp' },
+    { name: 'Amplitude Clipping (80%)', eer: '22.00%', auc: '82.64%', acc: '70.00%', f1: '0.5714', deltaEer: '0.00 pp' },
+    { name: 'Packet Loss Dropouts (5%)', eer: '6.00%', auc: '95.88%', acc: '73.00%', f1: '0.6301', deltaEer: '-16.00 pp' },
+  ];
+
+  // Load saved audited pilot benchmark results (100-sample exploratory cohort)
+  const loadAuditedPilotPreview = () => {
+    const cleanPilotMetrics: MetricsResult = {
+      accuracy: 0.700,
+      precision: 1.000,
+      recall: 0.400,
+      f1: 0.5714,
+      roc_auc: 0.8236,
+      eer: 0.220,
+      fpr: 0.000,
+      fnr: 0.600,
+      confusion_matrix: [[50, 0], [30, 20]],
+      threshold_used: 0.500,
+      threshold_source: 'default_fixed_threshold',
+      n_samples: 100,
+      n_genuine: 50,
+      n_synthetic: 50,
       positive_class: 'synthetic',
       bootstrap_ci_95: {
-        roc_auc: [0.954, 0.992],
-        accuracy: [0.915, 0.970]
+        roc_auc: [0.720, 0.925],
+        accuracy: [0.610, 0.790]
       },
-      ece: 0.038,
-      aurc: 0.031,
-      risk_coverage: [
-        { coverage: 0.2, risk: 0.005 },
-        { coverage: 0.4, risk: 0.012 },
-        { coverage: 0.6, risk: 0.021 },
-        { coverage: 0.8, risk: 0.038 },
-        { coverage: 1.0, risk: 0.058 }
-      ]
+      ece: null,
+      aurc: null,
+      risk_coverage: null
     };
 
     setActiveResult({
-      job_id: 'benchmark_demo_run',
+      job_id: 'audited_pilot_100_samples',
       status: 'completed',
-      dataset_name: 'ASVspoof 2019 LA (Evaluated Protocol)',
-      validation_metrics: { ...demoMetrics, n_samples: 50, accuracy: 0.96 },
-      test_metrics: demoMetrics,
+      dataset_name: 'ASVspoof 2019 LA Exploratory Pilot (N=100: 50 Genuine, 50 Spoof)',
+      validation_metrics: cleanPilotMetrics,
+      test_metrics: cleanPilotMetrics,
       experiment_config: {
-        model_id: 'Sara1708/deepfake-audio-wav2vec2',
-        speaker_disjoint: true,
-        validation_split: 0.2,
-        tuned_threshold: 0.52,
-        timestamp: Date.now() / 1000
+        model_id: 'MelodyMachine/Deepfake-audio-detection-V2',
+        speaker_disjoint: false,
+        validation_split: 0.0,
+        tuned_threshold: 0.50,
+        timestamp: Date.now() / 1000,
+        notes: 'Exploratory pilot sequentially sampled from ASVspoof 2019 LA eval split with 12 overlapping speaker identities. Threshold fixed at 0.5 without calibration split.'
       },
-      model_id: 'Sara1708/deepfake-audio-wav2vec2',
-      warnings: ['Demonstration research benchmark loaded for offline evaluation inspection.'],
-      processing_time_sec: 4.8,
+      model_id: 'MelodyMachine/Deepfake-audio-detection-V2',
+      warnings: [
+        'Displaying saved evidence from the exploratory 100-recording pilot (50 genuine, 50 spoof).',
+        'This is saved historical benchmark evidence, not a newly executed live test.',
+        'Selective prediction (AURC) and speaker-disjoint splitting are formulated as proposed methodologies for future research.'
+      ],
+      processing_time_sec: 12.4,
       error: null
     });
   };
+
+  const loadSyntheticBenchmarkDemo = loadAuditedPilotPreview;
 
   const metrics = activeResult?.test_metrics || activeResult?.validation_metrics;
 
@@ -174,8 +191,8 @@ export function ResearchPage() {
             <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
               Benchmark Experiment Configuration
             </h3>
-            <Button variant="ghost" size="sm" onClick={loadSyntheticBenchmarkDemo}>
-              Load Published Benchmark Preview
+            <Button variant="secondary" size="sm" onClick={loadAuditedPilotPreview}>
+              Load Saved Pilot Evidence (N=100)
             </Button>
           </div>
 
@@ -317,7 +334,7 @@ export function ResearchPage() {
               <Card>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>ROC-AUC</div>
                 <div style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent)', marginTop: '0.25rem' }} className="tabular-nums">
-                  {metrics.roc_auc !== null ? metrics.roc_auc.toFixed(3) : 'N/A'}
+                  {metrics.roc_auc != null ? metrics.roc_auc.toFixed(3) : 'N/A'}
                 </div>
                 {metrics.bootstrap_ci_95?.roc_auc && (
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
@@ -329,7 +346,7 @@ export function ResearchPage() {
               <Card>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Equal Error Rate (EER)</div>
                 <div style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '0.25rem' }} className="tabular-nums">
-                  {metrics.eer !== null ? (metrics.eer * 100).toFixed(1) + '%' : 'N/A'}
+                  {metrics.eer != null ? (metrics.eer * 100).toFixed(1) + '%' : 'N/A'}
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                   FPR = FNR equilibrium
@@ -339,7 +356,7 @@ export function ResearchPage() {
               <Card>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>F1-Score</div>
                 <div style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '0.25rem' }} className="tabular-nums">
-                  {metrics.f1 !== null ? (metrics.f1 * 100).toFixed(1) + '%' : 'N/A'}
+                  {metrics.f1 != null ? (metrics.f1 * 100).toFixed(1) + '%' : 'N/A'}
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                   Precision: {metrics.precision ? (metrics.precision * 100).toFixed(1) + '%' : 'N/A'}
@@ -349,7 +366,7 @@ export function ResearchPage() {
               <Card>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Test Accuracy</div>
                 <div style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '0.25rem' }} className="tabular-nums">
-                  {metrics.accuracy !== null ? (metrics.accuracy * 100).toFixed(1) + '%' : 'N/A'}
+                  {metrics.accuracy != null ? (metrics.accuracy * 100).toFixed(1) + '%' : 'N/A'}
                 </div>
                 {metrics.bootstrap_ci_95?.accuracy && (
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
@@ -395,8 +412,8 @@ export function ResearchPage() {
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>
-                  <span>FPR: {metrics.fpr !== null ? (metrics.fpr * 100).toFixed(1) + '%' : 'N/A'}</span>
-                  <span>FNR: {metrics.fnr !== null ? (metrics.fnr * 100).toFixed(1) + '%' : 'N/A'}</span>
+                  <span>FPR: {metrics.fpr != null ? (metrics.fpr * 100).toFixed(1) + '%' : 'N/A'}</span>
+                  <span>FNR: {metrics.fnr != null ? (metrics.fnr * 100).toFixed(1) + '%' : 'N/A'}</span>
                 </div>
               </Card>
 
@@ -406,58 +423,75 @@ export function ResearchPage() {
                   Decision Threshold Optimization
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                  <div>Optimal Threshold: <strong style={{ color: 'var(--text-primary)' }}>{metrics.threshold_used?.toFixed(3)}</strong></div>
-                  <div>Source: <strong style={{ color: 'var(--text-primary)' }}>{metrics.threshold_source}</strong></div>
+                  <div>Decision Threshold: <strong style={{ color: 'var(--text-primary)' }}>{metrics.threshold_used != null ? metrics.threshold_used.toFixed(2) : '0.50'} (Fixed Default)</strong></div>
+                  <div>Threshold Source: <strong style={{ color: 'var(--text-primary)' }}>{metrics.threshold_source}</strong></div>
                   <div>Dataset Balance: <strong style={{ color: 'var(--text-primary)' }}>{metrics.n_genuine} Genuine / {metrics.n_synthetic} Synthetic</strong></div>
-                  <div>Area Under Risk-Coverage (AURC): <strong style={{ color: 'var(--accent)' }}>{metrics.aurc ? metrics.aurc.toFixed(4) : 'N/A'}</strong></div>
+                  <div>Selective Prediction (AURC): <strong style={{ color: 'var(--accent)' }}>Proposed Framework (Not Evaluated in Pilot)</strong></div>
                   <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--bg-main)', borderRadius: 'var(--radius-sm)', lineHeight: 1.5 }}>
-                    <strong style={{ color: 'var(--text-primary)' }}>Research Standard:</strong> The threshold was tuned strictly on the validation partition to minimize Equal Error Rate, then applied without modification to the test partition, preventing overfitted optimistic claims.
+                    <strong style={{ color: 'var(--text-primary)' }}>Pilot Limitation:</strong> Evaluated on 100 sequentially sampled recordings from the ASVspoof 2019 LA test split with 12 overlapping speaker identities. Threshold was held fixed at 0.5 without a held-out calibration split. Two-stage validation threshold calibration and selective prediction (AURC) remain proposed frameworks for future research.
                   </div>
                 </div>
               </Card>
             </div>
 
-            {/* Risk-Coverage Curve (Selective Classification) */}
-            {metrics.risk_coverage && metrics.risk_coverage.length > 0 && (
-              <Card>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    Risk-Coverage Tradeoff (Selective Classification)
-                  </h3>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    AURC: {metrics.aurc?.toFixed(4)}
-                  </span>
-                </div>
-                <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                  Shows how classification error risk decreases as the model is permitted to abstain / defer uncertain voice samples.
-                </p>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem', height: 120, background: 'var(--bg-main)', padding: '1rem', borderRadius: 'var(--radius-md)' }}>
-                  {metrics.risk_coverage.map((pt, idx) => {
-                    const heightPct = Math.max(10, Math.min(100, (pt.risk / (metrics.eer || 0.1)) * 80));
-                    return (
-                      <div key={idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
-                        <div
-                          style={{
-                            width: '100%',
-                            height: `${heightPct}%`,
-                            background: 'var(--accent)',
-                            opacity: 0.8,
-                            borderRadius: '2px 2px 0 0'
-                          }}
-                          title={`Coverage: ${(pt.coverage * 100).toFixed(0)}%, Risk: ${(pt.risk * 100).toFixed(1)}%`}
-                        />
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-light)', marginTop: '0.25rem' }}>
-                          {(pt.coverage * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.375rem' }}>
-                  Coverage (fraction of samples evaluated)
-                </div>
-              </Card>
-            )}
+            {/* Audited Acoustic Distortion Stress-Test Suite */}
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Acoustic Distortion Robustness Stress-Test Suite (N = 100)
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  12 Audited Conditions
+                </span>
+              </div>
+              <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                Audited performance of pretrained <code style={{ color: 'var(--accent)' }}>MelodyMachine/Deepfake-audio-detection-V2</code> across 11 simulated acoustic perturbations versus clean baseline.
+              </p>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', fontSize: '0.8125rem', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                      <th style={{ padding: '0.5rem' }}>Acoustic Condition</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>EER (%)</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>ROC-AUC (%)</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>Accuracy (@ 0.5)</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>F1-Score (@ 0.5)</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center' }}>&Delta; EER (pp)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {AUDITED_DISTORTIONS.map((d, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i === 0 ? 'var(--bg-main)' : 'transparent' }}>
+                        <td style={{ padding: '0.5rem', fontWeight: i === 0 ? 600 : 400, color: i === 0 ? 'var(--accent)' : 'var(--text-primary)' }}>{d.name}</td>
+                        <td style={{ padding: '0.5rem', textAlign: 'center' }} className="tabular-nums">{d.eer}</td>
+                        <td style={{ padding: '0.5rem', textAlign: 'center' }} className="tabular-nums">{d.auc}</td>
+                        <td style={{ padding: '0.5rem', textAlign: 'center' }} className="tabular-nums">{d.acc}</td>
+                        <td style={{ padding: '0.5rem', textAlign: 'center' }} className="tabular-nums">{d.f1}</td>
+                        <td style={{ padding: '0.5rem', textAlign: 'center' }} className="tabular-nums">{d.deltaEer}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                <strong>Key Observations:</strong> Additive noise at 20 dB causes score collapse to the genuine baseline ($p \approx 1.68 \times 10^{-5}$), dropping ROC-AUC to 23.78% and inducing a 100% false negative rate at threshold 0.5. Narrowband telephony (300–3400 Hz) shifts scores upward, causing 26% false positive alarms at threshold 0.5 despite high threshold-free ROC-AUC (97.70%).
+              </div>
+            </Card>
+
+            {/* Proposed Methodology: Selective Classification Protocol */}
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Proposed Selective Classification Protocol (AURC)
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--uncertain-text)' }}>
+                  Proposed Protocol (Not Evaluated in Pilot)
+                </span>
+              </div>
+              <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                In forensic verification, abstaining on uncertain decisions can prevent costly false accusations. EchoProof formulates a rejection threshold &tau; relative to an operational decision boundary &theta;* to construct risk-coverage curves. Empirical numerical integration of Area Under the Risk-Coverage Curve (AURC) was <strong>not evaluated</strong> on the exploratory 100-sample pilot and remains future work alongside two-stage threshold calibration and full-corpus scaling.
+              </p>
+            </Card>
 
             {/* Export Report */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>

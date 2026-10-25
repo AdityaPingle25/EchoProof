@@ -1,0 +1,85 @@
+{
+  "model_id": "MelodyMachine/Deepfake-audio-detection-V2",
+  "clean_baseline": {
+    "accuracy": 0.7,
+    "f1": 0.5714285714285714,
+    "auc_roc": 0.8235999999999999,
+    "eer": 0.21999999999999997
+  },
+  "generators": {
+    "asvspoof2019_eval_spoof": {
+      "samples": 50,
+      "eer": 0.21999999999999997,
+      "auc_roc": 0.8235999999999999,
+      "status": "evaluated"
+    }
+  },
+  "distortions": {
+    "noise_snr_20db": {
+      "eer": 0.74,
+      "auc_roc": 0.2378,
+      "accuracy": 0.5,
+      "eer_degradation": 0.52
+    },
+    "noise_snr_10db": {
+      "eer": 0.5800000000000001,
+      "auc_roc": 0.4142,
+      "accuracy": 0.5,
+      "eer_degradation": 0.3600000000000001
+    },
+    "noise_snr_5db": {
+      "eer": 0.54,
+      "auc_roc": 0.5158,
+      "accuracy": 0.5,
+      "eer_degradation": 0.32000000000000006
+    },
+    "telephony_g711_narrowband": {
+      "eer": 0.12,
+      "auc_roc": 0.977,
+      "accuracy": 0.87,
+      "eer_degradation": -0.09999999999999998
+    },
+    "telephony_g722_wideband": {
+      "eer": 0.16000000000000003,
+      "auc_roc": 0.8909999999999999,
+      "accuracy": 0.79,
+      "eer_degradation": -0.05999999999999994
+    },
+    "reverb_rt60_0.2s": {
+      "eer": 0.38,
+      "auc_roc": 0.6468,
+      "accuracy": 0.68,
+      "eer_degradation": 0.16000000000000003
+    },
+    "reverb_rt60_0.5s": {
+      "eer": 0.36,
+      "auc_roc": 0.6616000000000001,
+      "accuracy": 0.68,
+      "eer_degradation": 0.14
+    },
+    "codec_mp3_medium": {
+      "eer": 0.22,
+      "auc_roc": 0.8344000000000001,
+      "accuracy": 0.6,
+      "eer_degradation": 2.7755575615628914e-17
+    },
+    "codec_mp3_low": {
+      "eer": 0.24,
+      "auc_roc": 0.8676,
+      "accuracy": 0.55,
+      "eer_degradation": 0.020000000000000018
+    },
+    "clipping_80pct": {
+      "eer": 0.21999999999999997,
+      "auc_roc": 0.8264,
+      "accuracy": 0.7,
+      "eer_degradation": 0.0
+    },
+    "packet_loss_5pct": {
+      "eer": 0.06000000000000005,
+      "auc_roc": 0.9587999999999999,
+      "accuracy": 0.73,
+      "eer_degradation": -0.15999999999999992
+    }
+  }
+}

@@ -1,0 +1,11 @@
+audio_file,label,speaker,generator,utterance_id,source_dataset,subset
+spoof_LA_0039_LA_E_2834763.wav,spoof,LA_0039,asvspoof2019_eval_spoof,LA_E_2834763,ASVspoof2019_LA,eval
+spoof_LA_0014_LA_E_8877452.wav,spoof,LA_0014,asvspoof2019_eval_spoof,LA_E_8877452,ASVspoof2019_LA,eval
+spoof_LA_0040_LA_E_6828287.wav,spoof,LA_0040,asvspoof2019_eval_spoof,LA_E_6828287,ASVspoof2019_LA,eval
+spoof_LA_0022_LA_E_6977360.wav,spoof,LA_0022,asvspoof2019_eval_spoof,LA_E_6977360,ASVspoof2019_LA,eval
+spoof_LA_0031_LA_E_5932896.wav,spoof,LA_0031,asvspoof2019_eval_spoof,LA_E_5932896,ASVspoof2019_LA,eval
+bonafide_LA_0030_LA_E_5849185.wav,bonafide,LA_0030,bonafide,LA_E_5849185,ASVspoof2019_LA,eval
+bonafide_LA_0033_LA_E_4581379.wav,bonafide,LA_0033,bonafide,LA_E_4581379,ASVspoof2019_LA,eval
+bonafide_LA_0039_LA_E_6314733.wav,bonafide,LA_0039,bonafide,LA_E_6314733,ASVspoof2019_LA,eval
+bonafide_LA_0037_LA_E_3379393.wav,bonafide,LA_0037,bonafide,LA_E_3379393,ASVspoof2019_LA,eval
+bonafide_LA_0028_LA_E_3757378.wav,bonafide,LA_0028,bonafide,LA_E_3757378,ASVspoof2019_LA,eval

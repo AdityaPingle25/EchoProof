@@ -134,21 +134,52 @@ def split_dataset(
 
 
 def compute_eer(y_true: np.ndarray, y_scores: np.ndarray) -> Optional[float]:
-    """Compute Equal Error Rate."""
+    """Compute Equal Error Rate (EER) safely without duplicate-FPR interpolation crashes."""
+    y_true_arr = np.asarray(y_true)
+    y_scores_arr = np.asarray(y_scores)
+
+    if len(y_true_arr) < 2 or len(y_scores_arr) < 2:
+        logger.warning("EER computation failed: fewer than 2 samples provided.")
+        return None
+
+    unique_classes = np.unique(y_true_arr)
+    if len(unique_classes) < 2:
+        logger.warning(f"EER computation failed: only one class ({unique_classes[0]}) present in ground truth.")
+        return None
+
     try:
-        fpr, tpr, thresholds = roc_curve(y_true, y_scores)
-        fnr = 1 - tpr
-        # Find intersection
-        eer_func = interp1d(fpr, fnr - fpr)
-        # EER is where FPR == FNR
-        try:
-            eer_threshold = brentq(lambda x: interp1d(fpr, fnr)(x) - x, 0, 1)
-            eer = float(eer_threshold)
-        except ValueError:
-            # Fallback: find closest point
-            idx = np.nanargmin(np.abs(fpr - fnr))
-            eer = float((fpr[idx] + fnr[idx]) / 2)
-        return eer
+        fpr, tpr, thresholds = roc_curve(y_true_arr, y_scores_arr, pos_label=1)
+        fnr = 1.0 - tpr
+
+        # Check for perfect separation
+        if np.any((fpr == 0.0) & (fnr == 0.0)):
+            return 0.0
+
+        diffs = fpr - fnr
+        exact_match = np.where(diffs == 0.0)[0]
+        if len(exact_match) > 0:
+            return float(fpr[exact_match[0]])
+
+        crossing_idx = np.where(diffs > 0.0)[0]
+        if len(crossing_idx) == 0:
+            min_idx = np.argmin(np.abs(diffs))
+            return float((fpr[min_idx] + fnr[min_idx]) / 2.0)
+
+        idx = int(crossing_idx[0])
+        idx_prev = idx - 1
+
+        x1, y1 = float(fpr[idx_prev]), float(fnr[idx_prev])
+        x2, y2 = float(fpr[idx]), float(fnr[idx])
+
+        if x1 == x2:
+            return float(x1)
+
+        m = (y2 - y1) / (x2 - x1)
+        if m == 1.0:
+            return float((x1 + y1) / 2.0)
+
+        eer = (y1 - m * x1) / (1.0 - m)
+        return float(np.clip(eer, 0.0, 1.0))
     except Exception as e:
         logger.warning(f"EER computation failed: {e}")
         return None

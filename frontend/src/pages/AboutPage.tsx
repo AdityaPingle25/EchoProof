@@ -20,7 +20,7 @@ export function AboutPage() {
     setTestStatus('Testing connection...');
     try {
       const health = await checkHealth();
-      setTestStatus(`Connected! Version: ${health.version}, Model Loaded: ${health.model_loaded}`);
+      setTestStatus(`Connected! Version: ${health.version ?? '1.0.0'}, Model Loaded: ${health.model_loaded}`);
     } catch (err: unknown) {
       setTestStatus('Could not reach backend at specified address.');
     }

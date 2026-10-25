@@ -186,8 +186,8 @@ export function EmptyState({ icon, title, description }: { icon: React.ReactNode
 }
 
 /* ── Warning Box ───────────────────────────────────────── */
-export function WarningBox({ warnings }: { warnings: string[] }) {
-  if (!warnings.length) return null;
+export function WarningBox({ warnings }: { warnings?: string[] }) {
+  if (!warnings || !warnings.length) return null;
   return (
     <div style={{
       background: 'var(--uncertain-bg)',

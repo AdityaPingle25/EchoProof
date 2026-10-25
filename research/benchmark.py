@@ -41,18 +41,74 @@ logging.basicConfig(
 logger = logging.getLogger("echoproof_benchmark")
 
 
-def compute_eer(y_true: np.ndarray, y_scores: np.ndarray) -> float:
+def compute_eer(y_true: np.ndarray, y_scores: np.ndarray) -> Optional[float]:
+    """Computes Equal Error Rate (EER) safely.
+
+    Handles tied FPR values, tied scores, and degenerate datasets.
+    Returns None if:
+    - Input is empty or has fewer than 2 samples
+    - Only one class is present in y_true
+    - y_true and y_scores lengths mismatch
+    - Calculation cannot be completed reliably
+    """
+    y_true_arr = np.asarray(y_true)
+    y_scores_arr = np.asarray(y_scores)
+
+    if len(y_true_arr) < 2 or len(y_scores_arr) < 2:
+        logger.warning("EER cannot be calculated: fewer than 2 samples provided.")
+        return None
+
+    unique_classes = np.unique(y_true_arr)
+    if len(unique_classes) < 2:
+        logger.warning(
+            f"EER cannot be calculated: only one class ({unique_classes[0]}) present in ground-truth labels."
+        )
+        return None
+
+    if len(y_true_arr) != len(y_scores_arr):
+        logger.warning("EER cannot be calculated: y_true and y_scores length mismatch.")
+        return None
+
     try:
-        fpr, tpr, _ = roc_curve(y_true, y_scores, pos_label=1)
-        fnr = 1 - tpr
-        eer = brentq(lambda x: 1.0 - x - interp1d(fpr, tpr)(x), 0.0, 1.0)
-    except Exception:
-        fpr, tpr, _ = roc_curve(y_true, y_scores, pos_label=1)
-        fnr = 1 - tpr
-        diffs = np.abs(fpr - fnr)
-        min_idx = np.argmin(diffs)
-        eer = float((fpr[min_idx] + fnr[min_idx]) / 2.0)
-    return float(eer)
+        fpr, tpr, thresholds = roc_curve(y_true_arr, y_scores_arr, pos_label=1)
+    except Exception as exc:
+        logger.warning(f"EER calculation failed in roc_curve: {exc}")
+        return None
+
+    fnr = 1.0 - tpr
+
+    # Check for perfect separation
+    if np.any((fpr == 0.0) & (fnr == 0.0)):
+        return 0.0
+
+    diffs = fpr - fnr
+    exact_match = np.where(diffs == 0.0)[0]
+    if len(exact_match) > 0:
+        return float(fpr[exact_match[0]])
+
+    # Find crossing point where diffs crosses zero
+    crossing_idx = np.where(diffs > 0.0)[0]
+    if len(crossing_idx) == 0:
+        min_idx = np.argmin(np.abs(diffs))
+        return float((fpr[min_idx] + fnr[min_idx]) / 2.0)
+
+    idx = int(crossing_idx[0])
+    idx_prev = idx - 1
+
+    x1, y1 = float(fpr[idx_prev]), float(fnr[idx_prev])
+    x2, y2 = float(fpr[idx]), float(fnr[idx])
+
+    # If tied FPR (vertical segment in ROC curve where FPR does not change)
+    if x1 == x2:
+        return float(x1)
+
+    # Linear interpolation between segment endpoints
+    m = (y2 - y1) / (x2 - x1)
+    if m == 1.0:
+        return float((x1 + y1) / 2.0)
+
+    eer = (y1 - m * x1) / (1.0 - m)
+    return float(np.clip(eer, 0.0, 1.0))
 
 
 class ModelInferenceWrapper:
@@ -150,9 +206,12 @@ def run_benchmark(
     label_col: str = "label",
     generator_col: str = "generator",
     output_dir: Path = Path("./results/benchmark"),
+    distortion_pipe: Optional[RealWorldDistortionPipeline] = None,
+    seed: Optional[int] = 42,
 ):
     output_dir.mkdir(parents=True, exist_ok=True)
-    distortion_pipe = RealWorldDistortionPipeline()
+    if distortion_pipe is None:
+        distortion_pipe = RealWorldDistortionPipeline(seed=seed)
 
     # Auto-detect columns if default is missing
     if filename_col not in df.columns:
@@ -191,7 +250,7 @@ def run_benchmark(
             binary_label = 1
         else:
             raise ValueError(f"Unknown benchmark label '{row[label_col]}'.")
-        generator = str(row[generator_col]) if generator_col in row else ("bonafide" if binary_label == 0 else "unknown")
+        generator = str(row[generator_col]) if generator_col in row and pd.notna(row[generator_col]) else ("bonafide" if binary_label == 0 else "unknown")
 
         try:
             audio, sr = sf.read(str(fpath), dtype="float32")
@@ -215,25 +274,87 @@ def run_benchmark(
     if not samples or {sample["label"] for sample in samples} != {0, 1}:
         raise ValueError("Benchmark data must contain at least one readable sample from each class.")
 
-    # 1. Clean Baseline Evaluation
+    distortion_names = [
+        "noise_snr_20db", "noise_snr_10db", "noise_snr_5db",
+        "telephony_g711_narrowband", "telephony_g722_wideband",
+        "reverb_rt60_0.2s", "reverb_rt60_0.5s",
+        "codec_mp3_medium", "codec_mp3_low",
+        "clipping_80pct", "packet_loss_5pct",
+    ]
+
+    # Evaluate clean baseline and single-pass acoustic distortion sweeps
+    logger.info(f"Evaluating clean baseline and single-pass acoustic distortions across {len(samples)} samples...")
     clean_scores = []
     clean_labels = []
-    for s in samples:
-        score = model_wrapper.predict_audio(s["audio"], 16000)
-        clean_scores.append(score)
+    distortion_scores: dict[str, list[float]] = {d_name: [] for d_name in distortion_names}
+    predictions_records: list[dict] = []
+
+    for i, s in enumerate(samples):
+        # 1. Clean audio inference
+        clean_score = float(model_wrapper.predict_audio(s["audio"], 16000))
+        clean_scores.append(clean_score)
         clean_labels.append(s["label"])
+        clean_pred = int(clean_score >= 0.5)
+
+        # 2. Compute each required transformation EXACTLY ONCE per recording with deterministic seed
+        sample_seed = ((seed * 100003 + i) % (2**31 - 1)) if seed is not None else None
+        try:
+            sweeps = distortion_pipe.apply_all_sweeps(s["audio"], 16000, seed=sample_seed)
+        except TypeError:
+            sweeps = distortion_pipe.apply_all_sweeps(s["audio"], 16000)
+
+        record = {
+            "filename": s["filename"],
+            "ground_truth_label": s["label"],
+            "label": s["label"],
+            "generator": s["generator"],
+            "model_identifier": model_wrapper.model_path_or_id,
+            "model_id": model_wrapper.model_path_or_id,
+            "evaluation_condition": "robustness_benchmark",
+            "clean_score": clean_score,
+            "clean_predicted_class": clean_pred,
+        }
+
+        # 3. Score each distortion condition by reusing the already-transformed audio
+        for d_name in distortion_names:
+            dist_audio = sweeps.get(d_name, s["audio"])
+            d_score = float(model_wrapper.predict_audio(dist_audio, 16000))
+            d_pred = int(d_score >= 0.5)
+            distortion_scores[d_name].append(d_score)
+            record[f"score_{d_name}"] = d_score
+            record[f"pred_{d_name}"] = d_pred
+            record[f"predicted_class_{d_name}"] = d_pred
+
+        predictions_records.append(record)
+        if (i + 1) % 10 == 0 or (i + 1) == len(samples):
+            logger.info(f"Evaluated {i + 1}/{len(samples)} recordings.")
+
+    # Save per-recording predictions to CSV
+    predictions_df = pd.DataFrame(predictions_records)
+    predictions_csv_path = output_dir / "predictions.csv"
+    predictions_df.to_csv(predictions_csv_path, index=False)
+    logger.info(f"Saved per-recording predictions to: {predictions_csv_path}")
 
     y_true = np.array(clean_labels)
     y_scores = np.array(clean_scores)
     y_pred = (y_scores >= 0.5).astype(int)
 
+    clean_eer = compute_eer(y_true, y_scores)
+    try:
+        clean_auc = float(roc_auc_score(y_true, y_scores))
+    except Exception as exc:
+        logger.warning(f"Clean baseline ROC-AUC calculation failed: {exc}")
+        clean_auc = None
+
     clean_metrics = {
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
-        "auc_roc": float(roc_auc_score(y_true, y_scores)),
-        "eer": float(compute_eer(y_true, y_scores)),
+        "auc_roc": clean_auc,
+        "eer": clean_eer,
     }
-    logger.info(f"Clean Baseline: EER={clean_metrics['eer']*100:.2f}%, AUC={clean_metrics['auc_roc']*100:.2f}%")
+    eer_disp = f"{clean_eer * 100:.2f}%" if clean_eer is not None else "N/A"
+    auc_disp = f"{clean_auc * 100:.2f}%" if clean_auc is not None else "N/A"
+    logger.info(f"Clean Baseline: EER={eer_disp}, AUC={auc_disp}")
 
     # 2. Breakdown by Voice Generator (Unseen Generator Analysis)
     generator_results = {}
@@ -244,58 +365,81 @@ def run_benchmark(
         gen_indices = [i for i, s in enumerate(samples) if s["generator"] == gen]
         eval_indices = bonafide_indices + gen_indices
         if len(gen_indices) == 0 or len(bonafide_indices) == 0:
+            logger.warning(
+                f"Generator '{gen}' lacks necessary classes (spoof={len(gen_indices)}, bonafide={len(bonafide_indices)}). "
+                "Marking metrics as unavailable."
+            )
+            generator_results[gen] = {
+                "samples": len(gen_indices),
+                "eer": None,
+                "auc_roc": None,
+                "status": "unavailable_missing_class",
+            }
             continue
 
         sub_labels = y_true[eval_indices]
         sub_scores = y_scores[eval_indices]
 
+        if len(np.unique(sub_labels)) < 2:
+            logger.warning(
+                f"Generator '{gen}' evaluation subset has only one class. Marking metrics as unavailable."
+            )
+            generator_results[gen] = {
+                "samples": len(gen_indices),
+                "eer": None,
+                "auc_roc": None,
+                "status": "unavailable_single_class",
+            }
+            continue
+
         try:
             gen_eer = compute_eer(sub_labels, sub_scores)
+        except Exception as exc:
+            logger.warning(f"Generator '{gen}' EER calculation failed: {exc}")
+            gen_eer = None
+
+        try:
             gen_auc = float(roc_auc_score(sub_labels, sub_scores))
-        except Exception:
-            gen_eer = 0.5
-            gen_auc = 0.5
+        except Exception as exc:
+            logger.warning(f"Generator '{gen}' ROC-AUC calculation failed: {exc}")
+            gen_auc = None
 
         generator_results[gen] = {
             "samples": len(gen_indices),
             "eer": gen_eer,
             "auc_roc": gen_auc,
+            "status": "evaluated" if (gen_eer is not None and gen_auc is not None) else "partial",
         }
 
     # 3. Real-World Distortion Sweeps
-    distortion_names = [
-        "noise_snr_20db", "noise_snr_10db", "noise_snr_5db",
-        "telephony_g711_narrowband", "telephony_g722_wideband",
-        "reverb_rt60_0.2s", "reverb_rt60_0.5s",
-        "codec_mp3_medium", "codec_mp3_low",
-        "clipping_80pct", "packet_loss_5pct",
-    ]
-
     distortion_results = {}
     for d_name in distortion_names:
-        logger.info(f"Evaluating distortion: {d_name}...")
-        dist_scores = []
-        for s in samples:
-            sweeps = distortion_pipe.apply_all_sweeps(s["audio"], 16000)
-            dist_audio = sweeps.get(d_name, s["audio"])
-            score = model_wrapper.predict_audio(dist_audio, 16000)
-            dist_scores.append(score)
-
-        d_scores = np.array(dist_scores)
+        d_scores = np.array(distortion_scores[d_name])
         try:
             d_eer = compute_eer(y_true, d_scores)
+        except Exception as exc:
+            logger.warning(f"Distortion '{d_name}' EER calculation failed: {exc}")
+            d_eer = None
+
+        try:
             d_auc = float(roc_auc_score(y_true, d_scores))
+        except Exception as exc:
+            logger.warning(f"Distortion '{d_name}' ROC-AUC calculation failed: {exc}")
+            d_auc = None
+
+        try:
             d_acc = float(accuracy_score(y_true, (d_scores >= 0.5).astype(int)))
-        except Exception:
-            d_eer = 0.5
-            d_auc = 0.5
-            d_acc = 0.5
+        except Exception as exc:
+            logger.warning(f"Distortion '{d_name}' accuracy calculation failed: {exc}")
+            d_acc = None
+
+        eer_degradation = (d_eer - clean_metrics["eer"]) if (d_eer is not None and clean_metrics.get("eer") is not None) else None
 
         distortion_results[d_name] = {
             "eer": d_eer,
             "auc_roc": d_auc,
             "accuracy": d_acc,
-            "eer_degradation": d_eer - clean_metrics["eer"],
+            "eer_degradation": eer_degradation,
         }
 
     # Compile Summary
@@ -310,6 +454,20 @@ def run_benchmark(
     with open(output_dir / "benchmark_metrics.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
+    def _fmt(val: float | None, as_pct: bool = False, signed: bool = False) -> str:
+        if val is None or (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
+            return "N/A"
+        if as_pct:
+            prefix = "+" if signed and val > 0 else ""
+            return f"{prefix}{val * 100:.2f}%"
+        return f"{val:.4f}"
+
+    def _fmt_tex(val: float | None, scale: float = 100.0, signed: bool = False) -> str:
+        if val is None or (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
+            return "--"
+        prefix = "+" if signed and val > 0 else ""
+        return f"{prefix}{val * scale:.2f}"
+
     # Generate Markdown Report
     md_content = f"""# EchoProof Research Benchmark Report
 
@@ -323,10 +481,10 @@ def run_benchmark(
 
 | Metric | Score | Percentage |
 |---|---|---|
-| **Equal Error Rate (EER)** | `{clean_metrics['eer']:.4f}` | **{clean_metrics['eer']*100:.2f}%** |
-| **Area Under ROC (AUC)** | `{clean_metrics['auc_roc']:.4f}` | **{clean_metrics['auc_roc']*100:.2f}%** |
-| **Classification Accuracy** | `{clean_metrics['accuracy']:.4f}` | **{clean_metrics['accuracy']*100:.2f}%** |
-| **F1-Score** | `{clean_metrics['f1']:.4f}` | **{clean_metrics['f1']*100:.2f}%** |
+| **Equal Error Rate (EER)** | `{_fmt(clean_metrics['eer'])}` | **{_fmt(clean_metrics['eer'], as_pct=True)}** |
+| **Area Under ROC (AUC)** | `{_fmt(clean_metrics['auc_roc'])}` | **{_fmt(clean_metrics['auc_roc'], as_pct=True)}** |
+| **Classification Accuracy** | `{_fmt(clean_metrics['accuracy'])}` | **{_fmt(clean_metrics['accuracy'], as_pct=True)}** |
+| **F1-Score** | `{_fmt(clean_metrics['f1'])}` | **{_fmt(clean_metrics['f1'], as_pct=True)}** |
 
 ---
 
@@ -336,20 +494,21 @@ def run_benchmark(
 |---|---|---|---|
 """
     for gen, m in generator_results.items():
-        md_content += f"| `{gen}` | {m['samples']} | {m['eer']*100:.2f}% | {m['auc_roc']*100:.2f}% |\n"
+        md_content += f"| `{gen}` | {m['samples']} | {_fmt(m['eer'], as_pct=True)} | {_fmt(m['auc_roc'], as_pct=True)} |\n"
 
-    md_content += """
+    md_content += f"""
 ---
 
 ## 3. Robustness Under Real-World Distortions
 
 | Distortion Condition | EER (%) | AUC-ROC (%) | Accuracy (%) | EER Degradation (Δ) |
 |---|---|---|---|---|
-| **Clean Baseline** | **""" + f"{clean_metrics['eer']*100:.2f}%** | **{clean_metrics['auc_roc']*100:.2f}%** | **{clean_metrics['accuracy']*100:.2f}%** | -- |\n"
+| **Clean Baseline** | **{_fmt(clean_metrics['eer'], as_pct=True)}** | **{_fmt(clean_metrics['auc_roc'], as_pct=True)}** | **{_fmt(clean_metrics['accuracy'], as_pct=True)}** | -- |
+"""
 
     for d_name, m in distortion_results.items():
         clean_name = d_name.replace("_", " ").title()
-        md_content += f"| {clean_name} | {m['eer']*100:.2f}% | {m['auc_roc']*100:.2f}% | {m['accuracy']*100:.2f}% | +{m['eer_degradation']*100:.2f}% |\n"
+        md_content += f"| {clean_name} | {_fmt(m['eer'], as_pct=True)} | {_fmt(m['auc_roc'], as_pct=True)} | {_fmt(m['accuracy'], as_pct=True)} | {_fmt(m['eer_degradation'], as_pct=True, signed=True)} |\n"
 
     with open(output_dir / "benchmark_results.md", "w", encoding="utf-8") as f:
         f.write(md_content)
@@ -364,20 +523,20 @@ def run_benchmark(
 \\toprule
 \\textbf{{Acoustic Condition}} & \\textbf{{EER (\\%)}} & \\textbf{{AUC (\\%)}} & \\textbf{{Acc (\\%)}} & \\textbf{{$\\Delta$ EER (\\%)}}\\\\
 \\midrule
-Clean Audio (Baseline) & {clean_metrics['eer']*100:.2f} & {clean_metrics['auc_roc']*100:.2f} & {clean_metrics['accuracy']*100:.2f} & -- \\\\
+Clean Audio (Baseline) & {_fmt_tex(clean_metrics['eer'])} & {_fmt_tex(clean_metrics['auc_roc'])} & {_fmt_tex(clean_metrics['accuracy'])} & -- \\\\
 \\midrule
 \\multicolumn{{5}}{{l}}{{\\textit{{Additive Acoustic Noise}}}} \\\\
-Noise (SNR 20 dB) & {distortion_results.get('noise_snr_20db', {}).get('eer', 0)*100:.2f} & {distortion_results.get('noise_snr_20db', {}).get('auc_roc', 0)*100:.2f} & {distortion_results.get('noise_snr_20db', {}).get('accuracy', 0)*100:.2f} & +{distortion_results.get('noise_snr_20db', {}).get('eer_degradation', 0)*100:.2f} \\\\
-Noise (SNR 10 dB) & {distortion_results.get('noise_snr_10db', {}).get('eer', 0)*100:.2f} & {distortion_results.get('noise_snr_10db', {}).get('auc_roc', 0)*100:.2f} & {distortion_results.get('noise_snr_10db', {}).get('accuracy', 0)*100:.2f} & +{distortion_results.get('noise_snr_10db', {}).get('eer_degradation', 0)*100:.2f} \\\\
-Noise (SNR 5 dB) & {distortion_results.get('noise_snr_5db', {}).get('eer', 0)*100:.2f} & {distortion_results.get('noise_snr_5db', {}).get('auc_roc', 0)*100:.2f} & {distortion_results.get('noise_snr_5db', {}).get('accuracy', 0)*100:.2f} & +{distortion_results.get('noise_snr_5db', {}).get('eer_degradation', 0)*100:.2f} \\\\
+Noise (SNR 20 dB) & {_fmt_tex(distortion_results.get('noise_snr_20db', {}).get('eer'))} & {_fmt_tex(distortion_results.get('noise_snr_20db', {}).get('auc_roc'))} & {_fmt_tex(distortion_results.get('noise_snr_20db', {}).get('accuracy'))} & {_fmt_tex(distortion_results.get('noise_snr_20db', {}).get('eer_degradation'), signed=True)} \\\\
+Noise (SNR 10 dB) & {_fmt_tex(distortion_results.get('noise_snr_10db', {}).get('eer'))} & {_fmt_tex(distortion_results.get('noise_snr_10db', {}).get('auc_roc'))} & {_fmt_tex(distortion_results.get('noise_snr_10db', {}).get('accuracy'))} & {_fmt_tex(distortion_results.get('noise_snr_10db', {}).get('eer_degradation'), signed=True)} \\\\
+Noise (SNR 5 dB) & {_fmt_tex(distortion_results.get('noise_snr_5db', {}).get('eer'))} & {_fmt_tex(distortion_results.get('noise_snr_5db', {}).get('auc_roc'))} & {_fmt_tex(distortion_results.get('noise_snr_5db', {}).get('accuracy'))} & {_fmt_tex(distortion_results.get('noise_snr_5db', {}).get('eer_degradation'), signed=True)} \\\\
 \\midrule
 \\multicolumn{{5}}{{l}}{{\\textit{{Telephony Channels}}}} \\\\
-G.711 Narrowband (PSTN) & {distortion_results.get('telephony_g711_narrowband', {}).get('eer', 0)*100:.2f} & {distortion_results.get('telephony_g711_narrowband', {}).get('auc_roc', 0)*100:.2f} & {distortion_results.get('telephony_g711_narrowband', {}).get('accuracy', 0)*100:.2f} & +{distortion_results.get('telephony_g711_narrowband', {}).get('eer_degradation', 0)*100:.2f} \\\\
-G.722 Wideband (VoLTE) & {distortion_results.get('telephony_g722_wideband', {}).get('eer', 0)*100:.2f} & {distortion_results.get('telephony_g722_wideband', {}).get('auc_roc', 0)*100:.2f} & {distortion_results.get('telephony_g722_wideband', {}).get('accuracy', 0)*100:.2f} & +{distortion_results.get('telephony_g722_wideband', {}).get('eer_degradation', 0)*100:.2f} \\\\
+G.711 Narrowband (PSTN) & {_fmt_tex(distortion_results.get('telephony_g711_narrowband', {}).get('eer'))} & {_fmt_tex(distortion_results.get('telephony_g711_narrowband', {}).get('auc_roc'))} & {_fmt_tex(distortion_results.get('telephony_g711_narrowband', {}).get('accuracy'))} & {_fmt_tex(distortion_results.get('telephony_g711_narrowband', {}).get('eer_degradation'), signed=True)} \\\\
+G.722 Wideband (VoLTE) & {_fmt_tex(distortion_results.get('telephony_g722_wideband', {}).get('eer'))} & {_fmt_tex(distortion_results.get('telephony_g722_wideband', {}).get('auc_roc'))} & {_fmt_tex(distortion_results.get('telephony_g722_wideband', {}).get('accuracy'))} & {_fmt_tex(distortion_results.get('telephony_g722_wideband', {}).get('eer_degradation'), signed=True)} \\\\
 \\midrule
 \\multicolumn{{5}}{{l}}{{\\textit{{Room Acoustics & Reverberation}}}} \\\\
-Reverberation (RT60 0.2s) & {distortion_results.get('reverb_rt60_0.2s', {}).get('eer', 0)*100:.2f} & {distortion_results.get('reverb_rt60_0.2s', {}).get('auc_roc', 0)*100:.2f} & {distortion_results.get('reverb_rt60_0.2s', {}).get('accuracy', 0)*100:.2f} & +{distortion_results.get('reverb_rt60_0.2s', {}).get('eer_degradation', 0)*100:.2f} \\\\
-Reverberation (RT60 0.5s) & {distortion_results.get('reverb_rt60_0.5s', {}).get('eer', 0)*100:.2f} & {distortion_results.get('reverb_rt60_0.5s', {}).get('auc_roc', 0)*100:.2f} & {distortion_results.get('reverb_rt60_0.5s', {}).get('accuracy', 0)*100:.2f} & +{distortion_results.get('reverb_rt60_0.5s', {}).get('eer_degradation', 0)*100:.2f} \\\\
+Reverberation (RT60 0.2s) & {_fmt_tex(distortion_results.get('reverb_rt60_0.2s', {}).get('eer'))} & {_fmt_tex(distortion_results.get('reverb_rt60_0.2s', {}).get('auc_roc'))} & {_fmt_tex(distortion_results.get('reverb_rt60_0.2s', {}).get('accuracy'))} & {_fmt_tex(distortion_results.get('reverb_rt60_0.2s', {}).get('eer_degradation'), signed=True)} \\\\
+Reverberation (RT60 0.5s) & {_fmt_tex(distortion_results.get('reverb_rt60_0.5s', {}).get('eer'))} & {_fmt_tex(distortion_results.get('reverb_rt60_0.5s', {}).get('auc_roc'))} & {_fmt_tex(distortion_results.get('reverb_rt60_0.5s', {}).get('accuracy'))} & {_fmt_tex(distortion_results.get('reverb_rt60_0.5s', {}).get('eer_degradation'), signed=True)} \\\\
 \\bottomrule
 \\end{{tabular}}
 \\end{{table}}
@@ -395,6 +554,7 @@ def main():
     parser.add_argument("--audio_dir", type=str, required=True, help="Base path for audio files")
     parser.add_argument("--output_dir", type=str, default="./results/benchmark", help="Output directory")
     parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda"], help="Inference device")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible acoustic distortions")
     args = parser.parse_args()
 
     df = pd.read_csv(args.manifest_csv)
@@ -404,6 +564,7 @@ def main():
         df=df,
         audio_dir=Path(args.audio_dir),
         output_dir=Path(args.output_dir),
+        seed=args.seed,
     )
 
 

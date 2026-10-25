@@ -43,7 +43,7 @@ Designed for college project reviews, academic viva evaluations, and scientific 
 - **Comprehensive Metrics**: Area Under the ROC Curve (ROC-AUC), Equal Error Rate (EER), F1-Score, Precision, Recall, and Accuracy.
 - **Biometric Leakage Prevention**: Enforces strict **Speaker-Disjoint Split Protocols** so the model cannot memorize speaker identity.
 - **Statistical Significance**: 95% Bootstrap Confidence Intervals over 1,000 resamples.
-- **Selective Classification (AURC)**: Risk-coverage curves demonstrating how selective abstention cuts classification risk by over 60%.
+- **Selective Classification (AURC)**: Formulates risk-coverage curves to manage forensic decision risk via confidence-based abstention bands.
 
 ### 4. Premium Responsive Design & Multi-Platform Delivery
 - **Web App**: Built with React 19, TypeScript, and modern glassmorphic styling.

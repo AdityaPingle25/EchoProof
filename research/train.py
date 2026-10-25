@@ -15,6 +15,7 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -49,19 +50,69 @@ def set_seed(seed: int = 42):
         torch.cuda.manual_seed_all(seed)
 
 
-def compute_eer(y_true: np.ndarray, y_scores: np.ndarray) -> float:
-    """Computes Equal Error Rate (EER)."""
-    fpr, tpr, thresholds = roc_curve(y_true, y_scores, pos_label=1)
-    fnr = 1 - tpr
-    # Find point where FPR == FNR
+def compute_eer(y_true: np.ndarray, y_scores: np.ndarray) -> Optional[float]:
+    """Computes Equal Error Rate (EER) safely.
+
+    Returns None if:
+    - Fewer than 2 samples are provided
+    - Only one class is present in y_true
+    - Lengths mismatch
+    - EER cannot be reliably computed
+    """
+    y_true_arr = np.asarray(y_true)
+    y_scores_arr = np.asarray(y_scores)
+
+    if len(y_true_arr) < 2 or len(y_scores_arr) < 2:
+        logger.warning("EER cannot be calculated: fewer than 2 samples provided.")
+        return None
+
+    if len(y_true_arr) != len(y_scores_arr):
+        logger.warning("EER cannot be calculated: y_true and y_scores length mismatch.")
+        return None
+
+    unique_classes = np.unique(y_true_arr)
+    if len(unique_classes) < 2:
+        logger.warning(
+            f"EER cannot be calculated: only one class ({unique_classes[0]}) present in ground-truth labels."
+        )
+        return None
+
     try:
-        eer = brentq(lambda x: 1.0 - x - interp1d(fpr, tpr)(x), 0.0, 1.0)
-    except Exception:
-        # Fallback to absolute difference minimum
-        diffs = np.abs(fpr - fnr)
-        min_idx = np.argmin(diffs)
-        eer = float((fpr[min_idx] + fnr[min_idx]) / 2.0)
-    return float(eer)
+        fpr, tpr, thresholds = roc_curve(y_true_arr, y_scores_arr, pos_label=1)
+    except Exception as exc:
+        logger.warning(f"EER calculation failed in roc_curve: {exc}")
+        return None
+
+    fnr = 1.0 - tpr
+
+    if np.any((fpr == 0.0) & (fnr == 0.0)):
+        return 0.0
+
+    diffs = fpr - fnr
+    exact_match = np.where(diffs == 0.0)[0]
+    if len(exact_match) > 0:
+        return float(fpr[exact_match[0]])
+
+    crossing_idx = np.where(diffs > 0.0)[0]
+    if len(crossing_idx) == 0:
+        min_idx = np.argmin(np.abs(diffs))
+        return float((fpr[min_idx] + fnr[min_idx]) / 2.0)
+
+    idx = int(crossing_idx[0])
+    idx_prev = idx - 1
+
+    x1, y1 = float(fpr[idx_prev]), float(fnr[idx_prev])
+    x2, y2 = float(fpr[idx]), float(fnr[idx])
+
+    if x1 == x2:
+        return float(x1)
+
+    m = (y2 - y1) / (x2 - x1)
+    if m == 1.0:
+        return float((x1 + y1) / 2.0)
+
+    eer = (y1 - m * x1) / (1.0 - m)
+    return float(np.clip(eer, 0.0, 1.0))
 
 
 def evaluate(
@@ -69,7 +120,7 @@ def evaluate(
     loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
-) -> dict[str, float]:
+) -> dict[str, Optional[float]]:
     """Runs evaluation on a validation or test DataLoader."""
     model.eval()
     total_loss = 0.0
@@ -97,18 +148,24 @@ def evaluate(
     avg_loss = total_loss / max(1, len(y_true))
     y_pred = (y_scores >= 0.5).astype(int)
 
-    acc = float(accuracy_score(y_true, y_pred))
-    f1 = float(f1_score(y_true, y_pred, zero_division=0))
+    acc = float(accuracy_score(y_true, y_pred)) if len(y_true) > 0 else None
+    f1 = float(f1_score(y_true, y_pred, zero_division=0)) if len(y_true) > 0 else None
 
     try:
-        auc = float(roc_auc_score(y_true, y_scores))
-    except Exception:
-        auc = 0.5
+        if len(np.unique(y_true)) < 2:
+            auc = None
+        else:
+            auc_val = roc_auc_score(y_true, y_scores)
+            auc = float(auc_val) if np.isfinite(auc_val) else None
+    except Exception as exc:
+        logger.warning(f"Validation ROC-AUC calculation failed: {exc}")
+        auc = None
 
     try:
         eer = compute_eer(y_true, y_scores)
-    except Exception:
-        eer = 0.5
+    except Exception as exc:
+        logger.warning(f"Validation EER calculation failed: {exc}")
+        eer = None
 
     return {
         "loss": avg_loss,
@@ -143,8 +200,8 @@ def calibrate_thresholds(
     if genuine_scores.size == 0 or spoof_scores.size == 0:
         raise ValueError("Threshold calibration requires genuine and spoof validation examples.")
 
-    threshold_genuine = float(np.quantile(spoof_scores, target_error_rate))
-    threshold_synthetic = float(np.quantile(genuine_scores, 1.0 - target_error_rate))
+    threshold_genuine = float(np.quantile(genuine_scores, 1.0 - target_error_rate))
+    threshold_synthetic = float(np.quantile(spoof_scores, target_error_rate))
     if threshold_genuine > threshold_synthetic:
         # The class distributions overlap too much for a confident abstention band.
         fpr, tpr, candidates = roc_curve(labels, scores, pos_label=1)
@@ -304,16 +361,19 @@ def train(args):
         }
         history.append(epoch_record)
 
+        val_eer_str = f"{val_metrics['eer'] * 100:.2f}%" if val_metrics["eer"] is not None else "N/A"
+        val_auc_str = f"{val_metrics['auc_roc'] * 100:.2f}%" if val_metrics["auc_roc"] is not None else "N/A"
+
         logger.info(
             f"Epoch [{epoch:02d}/{args.epochs:02d}] "
             f"Train Loss: {avg_train_loss:.4f} | "
             f"Val Loss: {val_metrics['loss']:.4f} | "
-            f"Val EER: {val_metrics['eer'] * 100:.2f}% | "
-            f"Val AUC: {val_metrics['auc_roc'] * 100:.2f}%"
+            f"Val EER: {val_eer_str} | "
+            f"Val AUC: {val_auc_str}"
         )
 
         # Checkpoint if best EER
-        if val_metrics["eer"] < best_val_eer:
+        if val_metrics["eer"] is not None and val_metrics["eer"] < best_val_eer:
             best_val_eer = val_metrics["eer"]
             checkpoint_path = output_dir / "best_model_eer.pt"
             torch.save(
@@ -336,7 +396,8 @@ def train(args):
         json.dump(history, f, indent=2)
 
     total_time = time.time() - start_time
-    logger.info(f"Training completed in {total_time / 60:.2f} minutes. Best Val EER: {best_val_eer * 100:.2f}%")
+    best_eer_str = f"{best_val_eer * 100:.2f}%" if best_val_eer < float("inf") else "N/A"
+    logger.info(f"Training completed in {total_time / 60:.2f} minutes. Best Val EER: {best_eer_str}")
 
     best_checkpoint_path = output_dir / "best_model_eer.pt"
     if best_checkpoint_path.is_file():
