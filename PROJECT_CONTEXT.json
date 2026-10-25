@@ -1,0 +1,2941 @@
+{
+  "document_metadata": {
+    "document_type": "project_context_export",
+    "schema_version": "1.0.0",
+    "project_name": "EchoProof AI",
+    "generated_at": "2026-10-24T01:39:00+05:30",
+    "analysis_scope": "Full project repository audit encompassing backend (FastAPI), frontend (React 19 + TypeScript + Vite + Capacitor), research pipeline (PyTorch + wav2vec2 + benchmark scripts), test suites, configuration, and documentation.",
+    "inspection_completeness": "complete",
+    "uninspected_areas": [],
+    "limitations": [
+      "Hardware-dependent benchmarks (such as GPU vs CPU inference latency) were evaluated in a CPU-only environment.",
+      "The bundled sample audio files in research/data/asvspoof_sample and research/data/ground_truth_benchmark are lightweight subsets (10 to 40 clips) designed for test execution, CI verification, and UI demonstrations rather than training production-scale deepfake detectors.",
+      "Subprocess MP3 encoding in AudioTransformer.mp3_compress depends on system FFmpeg availability; in environments lacking FFmpeg, a fallback Gaussian quantization noise simulation is invoked."
+    ]
+  },
+  "project_overview": {
+    "name": "EchoProof AI",
+    "tagline": "Hear the Truth Behind Every Voice — Research-Grade Speech Deepfake Detection & Acoustic Robustness Laboratory",
+    "description": "EchoProof AI is an academic and forensic speech deepfake detection system engineered to investigate whether modern audio classifiers remain resilient under real-world telephone bandpass filtering, environmental noise, and lossy compression. It couples pretrained self-supervised representations (wav2vec 2.0) with an 11-condition acoustic perturbation laboratory, speaker-disjoint validation protocols, and selective prediction (risk-coverage trade-offs with AURC).",
+    "problem_statement": "Rapid advances in neural vocoding, text-to-speech (TTS), and voice conversion (VC) architectures (e.g., FastSpeech 2, VITS, HiFi-GAN, diffusion models) allow adversaries to generate hyper-realistic cloned human speech. Contemporary detectors trained on pristine studio audio (such as ASVspoof 2019) fail catastrophically when deployed in real-world scenarios due to: 1) Unseen generator vulnerability; 2) Channel brittleness under telephone bandwidth (8 kHz) or lossy codecs (MP3); and 3) Overconfident uncalibrated softmax predictions that generate false accusations in forensic contexts.",
+    "proposed_solution": "EchoProof AI provides an end-to-end framework that evaluates self-supervised speech representations (wav2vec 2.0 with Attentive Statistical Pooling), tests model degradation systematically across 11 physical/codec distortions, enforces strict speaker-disjoint evaluation to eliminate biometric data leakage, introduces selective abstention (AURC) to cut classification risk by over 60%, and delivers an interactive full-stack interface with live audio recording, waveform/spectrogram rendering, and forensic report export.",
+    "primary_objectives": [
+      "Provide accessible, real-time speech deepfake inference using fine-tuned wav2vec 2.0 models.",
+      "Empirically quantify detector performance degradation under controlled acoustic perturbations (noise, downsampling, filtering, codecs, clipping).",
+      "Eliminate biometric data leakage in evaluation splits via strict speaker-disjoint partitioning.",
+      "Implement selective prediction and risk-coverage estimation (AURC) to allow model abstention on ambiguous audio.",
+      "Support academic dissemination with reproducible benchmark pipelines generating Markdown and LaTeX tables.",
+      "Deliver a modern, responsive web application (React 19) and installable mobile container (Capacitor Android)."
+    ],
+    "target_users": [
+      "Academic examiners and evaluators during capstone, thesis, and viva defense.",
+      "Forensic audio examiners investigating disputed speech recordings or fraudulent calls.",
+      "Cybersecurity and fraud prevention engineers protecting voice biometric systems.",
+      "Speech and machine learning researchers benchmarking anti-spoofing generalization."
+    ],
+    "use_cases": [
+      "Forensic Speech Verification: Uploading a suspicious voice recording, receiving chunk-level anomaly scores, and exporting an audit dossier.",
+      "Acoustic Channel Stress-Testing: Evaluating how a voice classifier behaves when subjected to PSTN telephony (8 kHz) or lossy MP3 compression.",
+      "Academic Research Benchmarking: Running evaluation experiments over labeled manifests to compute EER, AUC-ROC, and bootstrap confidence intervals.",
+      "Interactive Viva / Demo Walkthrough: Live microphone recording with client-side PCM encoding, real-time waveform visualization, and preset sample testing."
+    ],
+    "key_features": [
+      "Wav2Vec2 Inference Adapter with explicit semantic label discovery (resolving {0: fake, 1: real} vs {0: bonafide, 1: spoof}).",
+      "Attentive Statistical Pooling (ASP) network architecture for capturing localized temporal vocoder artifacts.",
+      "4-second sliding window chunking with mean aggregation and duration thresholding.",
+      "Acoustic Robustness Suite providing 11 physical and channel distortions (Gaussian noise, G.711/G.722, reverb, codecs, clipping, packet loss).",
+      "Speaker-Disjoint Dataset Partitioning to prevent speaker memorization and biometric leakage.",
+      "Selective Classification (AURC) computing risk-coverage curves and safe abstention thresholds.",
+      "Resilient Fallback Mode (AcousticSpectralDetector) that safely abstains with 'Uncertain' when weights fail to load, rejecting unverified heuristics.",
+      "Client-side 16-bit PCM WAV microphone recorder bypassing browser WebM encoding incompatibilities.",
+      "Interactive Mel-Spectrogram and Waveform Envelope visualization.",
+      "Full PWA support with auto-updating service worker and Capacitor configuration for Android native execution."
+    ],
+    "value_proposition": "Unlike black-box classifiers that output naive binary predictions, EchoProof AI equips researchers and forensic analysts with cross-channel stability metrics, selective abstention capabilities, and leak-free validation protocols to verify when a deepfake detection verdict can actually be trusted.",
+    "project_type": "Full-stack Machine Learning Web Application & Research Framework",
+    "development_stage": "production_ready_research_prototype"
+  },
+  "requirements": {
+    "functional_requirements": [
+      "Accept audio uploads in .wav, .mp3, .flac, .m4a, .ogg, and .opus formats up to 25 MB in size.",
+      "Enforce audio duration boundaries between 0.5 seconds and 300 seconds.",
+      "Perform channel downmixing to mono and polyphase resampling to 16,000 Hz.",
+      "Reject silent or corrupt audio where RMS energy is less than 1e-6.",
+      "Partition audio longer than 4.0 seconds into sliding 4.0-second windows with trailing chunk thresholding.",
+      "Score audio chunks using wav2vec 2.0 and aggregate chunk scores into a final primary spoof score.",
+      "Map scores into three categorical research verdicts: LIKELY_GENUINE (score <= 0.35), LIKELY_SYNTHETIC (score >= 0.65), and UNCERTAIN (0.35 < score < 0.65).",
+      "Execute robustness perturbation sweeps on demand and report score standard deviation, maximum score delta, and verdict flips.",
+      "Execute asynchronous dataset evaluation jobs with progress callbacks and in-memory status tracking.",
+      "Calculate EER, AUC-ROC, Accuracy, F1-Score, Precision, Recall, Confusion Matrix, and 95% Bootstrap CIs over 1,000 resamples.",
+      "Export evaluation predictions to CSV and forensic analysis dossiers to JSON."
+    ],
+    "non_functional_requirements": [
+      "Sub-second inference response time for standard 4-second audio clips on modern CPU hardware.",
+      "Deterministic and reproducible evaluation runs via explicit random seeding (default seed 42).",
+      "Safe failure and graceful degradation: neutral abstention with explicit warnings if model weights fail to load.",
+      "Zero biometric data leakage: strict speaker disjointness enforced between validation and test splits.",
+      "High visual fidelity: dark-mode glassmorphic interface with CSS tokens and accessible contrast ratios.",
+      "Cross-platform compatibility: responsive desktop web, installable PWA, and Capacitor Android container."
+    ],
+    "technical_constraints": [
+      "Target sample rate fixed at 16,000 Hz to match wav2vec 2.0 acoustic pretraining.",
+      "In-memory job management bounded to a maximum of 100 entries to prevent memory exhaustion.",
+      "Maximum concurrent asynchronous jobs limited to 3 (configurable via ECHOPROOF_MAX_JOBS).",
+      "Python 3.10+ required for backend typing and scikit-learn/scipy compatibility (verified on Python 3.12).",
+      "Node.js 20+ required for modern Vite bundler and React 19 compilation."
+    ],
+    "business_rules": [
+      "Softmax probabilities are uncalibrated model scores and must never be represented as absolute legal proof of speech falsification.",
+      "When model weights cannot load, the system MUST abstain with an UNCERTAIN verdict; hand-crafted spectral heuristics must never produce an authentic verdict.",
+      "Decision thresholds must be calibrated on a speaker-disjoint validation split before making academic or deployment accuracy claims.",
+      "The sample clips provided in the repository are strictly for UI demonstration and test verification; production training requires external public corpora (SpeechFake, ASVspoof)."
+    ],
+    "assumptions": [
+      "Incoming audio contains human vocal speech or synthetic vocal speech in the audible range.",
+      "Client browser supports Web Audio API (AudioContext) for live microphone recording.",
+      "Local or server filesystem permits temporary audio writing and automated deletion."
+    ],
+    "requirements_not_verified": [
+      "Native Android biometric audio capture in production hardware without user microphone permission prompt.",
+      "FFmpeg MP3 compression behavior in minimal Linux containers lacking the ffmpeg binary (falls back to simulated quantization noise)."
+    ]
+  },
+  "technology_stack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": "3.12.10 (3.10+ supported)",
+        "purpose": "Backend API, signal processing, neural network inference, research training and benchmarking."
+      },
+      {
+        "name": "TypeScript",
+        "version": "~7.0.2 / 5.x",
+        "purpose": "Frontend type safety, application architecture, API client contracts."
+      },
+      {
+        "name": "JavaScript (ESM)",
+        "version": "ES2022+",
+        "purpose": "Vite configuration, frontend bundler, browser runtime."
+      }
+    ],
+    "frontend": [
+      {
+        "name": "React",
+        "version": "^19.3.1",
+        "purpose": "User interface component library and virtual DOM rendering."
+      },
+      {
+        "name": "React DOM",
+        "version": "^19.3.1",
+        "purpose": "DOM mounting and component lifecycle rendering."
+      },
+      {
+        "name": "React Router DOM",
+        "version": "^6.30.6",
+        "purpose": "Client-side routing across / (Analyze), /robustness, /research, /about."
+      },
+      {
+        "name": "@tanstack/react-query",
+        "version": "^5.104.4",
+        "purpose": "Server state management, background refetching, and API query caching."
+      },
+      {
+        "name": "Lucide React",
+        "version": "^1.59.0",
+        "purpose": "Modern iconography across navigation, actions, and forensic cards."
+      },
+      {
+        "name": "Framer Motion",
+        "version": "^14.4.0",
+        "purpose": "Micro-animations, card transitions, tab switching, and score bar animations."
+      },
+      {
+        "name": "Recharts",
+        "version": "^3.10.1",
+        "purpose": "Interactive charting for ROC curves, risk-coverage trade-offs, and metrics."
+      },
+      {
+        "name": "Tailwind CSS",
+        "version": "^4.3.3",
+        "purpose": "Utility-first styling with @tailwindcss/vite plugin integration."
+      },
+      {
+        "name": "Vanilla CSS Design Tokens",
+        "version": "N/A",
+        "purpose": "Theme tokens in index.css defining glassmorphism, surfaces, typography, and badges."
+      }
+    ],
+    "backend": [
+      {
+        "name": "FastAPI",
+        "version": ">=0.115.0",
+        "purpose": "Asynchronous REST API framework, OpenAPI documentation, and request validation."
+      },
+      {
+        "name": "Uvicorn",
+        "version": ">=0.30.0",
+        "purpose": "High-performance ASGI server running the FastAPI application."
+      },
+      {
+        "name": "Starlette",
+        "version": "Included via FastAPI",
+        "purpose": "ASGI routing, middleware, background tasks, and streaming responses."
+      },
+      {
+        "name": "Pydantic",
+        "version": ">=2.9.0",
+        "purpose": "Data schema definition, input validation, and JSON serialization."
+      },
+      {
+        "name": "python-multipart",
+        "version": ">=0.0.12",
+        "purpose": "Parsing multipart/form-data for audio file uploads."
+      },
+      {
+        "name": "python-dotenv",
+        "version": ">=1.0.0",
+        "purpose": "Loading environment variables from .env file."
+      },
+      {
+        "name": "aiofiles",
+        "version": ">=24.1.0",
+        "purpose": "Asynchronous file I/O operations."
+      },
+      {
+        "name": "sse-starlette",
+        "version": ">=2.1.0",
+        "purpose": "Server-Sent Events for streaming job progress."
+      }
+    ],
+    "databases": [],
+    "orms_and_odms": [],
+    "ai_ml_components": [
+      {
+        "name": "PyTorch",
+        "version": ">=2.4.0",
+        "purpose": "Core deep learning framework for tensor calculations, autograd, and neural network inference."
+      },
+      {
+        "name": "Transformers (Hugging Face)",
+        "version": ">=4.40.0",
+        "purpose": "Loading pretrained Wav2Vec2 models and AutoFeatureExtractor (MelodyMachine/Deepfake-audio-detection-V2)."
+      },
+      {
+        "name": "Scikit-Learn",
+        "version": ">=1.5.0",
+        "purpose": "Evaluation metrics computation (roc_curve, roc_auc_score, accuracy_score, f1_score, confusion_matrix)."
+      },
+      {
+        "name": "SciPy",
+        "version": ">=1.14.0",
+        "purpose": "Signal processing (Butterworth filters, sosfilt, polyphase resampling, brentq root-finding for EER)."
+      },
+      {
+        "name": "SoundFile",
+        "version": ">=0.12.0",
+        "purpose": "Audio loading, decoding, and writing across WAV, FLAC, and OGG."
+      },
+      {
+        "name": "Pandas",
+        "version": ">=2.2.0",
+        "purpose": "Dataset manifest parsing, speaker-disjoint splitting, and tabular reporting."
+      },
+      {
+        "name": "NumPy",
+        "version": ">=1.26.0",
+        "purpose": "Numerical array computations, RMS calculation, and bootstrap resampling."
+      }
+    ],
+    "nlp_components": [],
+    "mobile_components": [
+      {
+        "name": "@capacitor/core",
+        "version": "^8.5.3",
+        "purpose": "Cross-platform mobile runtime bridge."
+      },
+      {
+        "name": "@capacitor/cli",
+        "version": "^8.5.3",
+        "purpose": "Command line tooling for native Android scaffolding and asset copying."
+      }
+    ],
+    "authentication_and_authorization": [],
+    "external_apis": [
+      {
+        "name": "Hugging Face Model Hub",
+        "url": "https://huggingface.co",
+        "purpose": "Downloading pretrained weights for MelodyMachine/Deepfake-audio-detection-V2 and facebook/wav2vec2-base."
+      }
+    ],
+    "libraries_and_frameworks": [
+      {
+        "name": "librosa",
+        "version": "Optional",
+        "purpose": "Mel-spectrogram extraction and audio visualization support."
+      }
+    ],
+    "build_tools": [
+      {
+        "name": "Vite",
+        "version": "^8.3.4",
+        "purpose": "Fast frontend development server and production bundler."
+      },
+      {
+        "name": "@vitejs/plugin-react",
+        "version": "^6.1.2",
+        "purpose": "React JSX/TSX fast refresh and compilation plugin."
+      },
+      {
+        "name": "vite-plugin-pwa",
+        "version": "^2.0.0",
+        "purpose": "Progressive Web App service worker generation and web manifest bundling."
+      }
+    ],
+    "testing_tools": [
+      {
+        "name": "Pytest",
+        "version": "^9.1.1",
+        "purpose": "Automated Python backend test runner."
+      },
+      {
+        "name": "Starlette TestClient / HTTPX",
+        "version": ">=0.27.0",
+        "purpose": "Synchronous and asynchronous API endpoint contract testing."
+      }
+    ],
+    "deployment_platforms": [
+      {
+        "name": "Localhost Development Server",
+        "purpose": "Uvicorn :8000 and Vite :5173 local execution."
+      },
+      {
+        "name": "Capacitor Android Container",
+        "purpose": "Compiling web frontend into Android APK (ai.echoproof.app)."
+      },
+      {
+        "name": "Progressive Web App (PWA)",
+        "purpose": "Installable offline-capable browser desktop and mobile app."
+      }
+    ],
+    "monitoring_and_logging": [
+      {
+        "name": "Python Logging Standard Library",
+        "purpose": "Formatted console logging (%(asctime)s | %(name)s | %(levelname)s | %(message)s)."
+      }
+    ],
+    "other_tools": [
+      {
+        "name": "FFmpeg",
+        "purpose": "Optional CLI utility invoked via Python subprocess for MP3 codec encoding/decoding in robustness transforms."
+      }
+    ]
+  },
+  "repository_structure": {
+    "root_directory": "c:\\Users\\ADITYA\\OneDrive\\Documents\\EchoProof",
+    "project_directories": [
+      {
+        "path": "backend",
+        "purpose": "FastAPI REST API, audio processing, neural detector adapter, job queue, and unit tests."
+      },
+      {
+        "path": "backend/app",
+        "purpose": "Core Python application modules."
+      },
+      {
+        "path": "backend/app/api",
+        "purpose": "API route handlers."
+      },
+      {
+        "path": "backend/app/audio",
+        "purpose": "Audio ingestion, resampling, chunking, and transformation filters."
+      },
+      {
+        "path": "backend/app/models",
+        "purpose": "Detector abstractions, Wav2Vec2 adapter, and fallback abstention."
+      },
+      {
+        "path": "backend/app/jobs",
+        "purpose": "In-memory asynchronous background task manager."
+      },
+      {
+        "path": "backend/app/evaluation",
+        "purpose": "Validation splitting, threshold tuning, bootstrap CIs, and metrics computation."
+      },
+      {
+        "path": "backend/app/uncertainty",
+        "purpose": "Prediction stability and perturbation analysis."
+      },
+      {
+        "path": "backend/tests",
+        "purpose": "Pytest test suite covering endpoints, transforms, detector, and metrics."
+      },
+      {
+        "path": "backend/scratch_audio/ground_truth",
+        "purpose": "Verified genuine LibriSpeech/LJSpeech and synthetic DeepVoice3/FastSpeech2 audio files."
+      },
+      {
+        "path": "frontend",
+        "purpose": "React 19, Vite, TypeScript, PWA, and Capacitor client application."
+      },
+      {
+        "path": "frontend/src",
+        "purpose": "Frontend source code."
+      },
+      {
+        "path": "frontend/src/components",
+        "purpose": "Reusable UI components (Layout, VerdictBadge, ScoreBar, Waveform)."
+      },
+      {
+        "path": "frontend/src/pages",
+        "purpose": "View pages: AnalyzePage, RobustnessPage, ResearchPage, AboutPage."
+      },
+      {
+        "path": "frontend/src/lib",
+        "purpose": "API client (api.ts) and TypeScript types (types.ts)."
+      },
+      {
+        "path": "frontend/public",
+        "purpose": "Static assets, favicons, PWA manifest, and audio sample files."
+      },
+      {
+        "path": "research",
+        "purpose": "Academic research benchmarking, model definitions, training scripts, and datasets."
+      },
+      {
+        "path": "research/configs",
+        "purpose": "Hyperparameter and experiment configuration files."
+      },
+      {
+        "path": "research/data",
+        "purpose": "Sample datasets (asvspoof_sample, ground_truth_benchmark) with metadata.csv manifests."
+      },
+      {
+        "path": "research/results",
+        "purpose": "Generated benchmark metrics (JSON), human-readable Markdown reports, and LaTeX tables."
+      },
+      {
+        "path": "docs",
+        "purpose": "Technical architecture, research paper draft, college demonstration guide, and training documentation."
+      }
+    ],
+    "important_files": [
+      {
+        "path": "backend/app/main.py",
+        "purpose": "FastAPI application entry point, lifespan handler, CORS middleware, and root endpoint.",
+        "responsibilities": [
+          "Initializes detector singleton on startup",
+          "Configures CORS",
+          "Mounts router"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "backend/app/config.py",
+        "purpose": "Central configuration loading environment variables and setting threshold defaults.",
+        "responsibilities": [
+          "Loads .env",
+          "Defines paths, model settings, and audio boundaries"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "backend/app/schemas.py",
+        "purpose": "Pydantic v2 schemas defining API request and response data contracts.",
+        "responsibilities": [
+          "Defines Verdict, JobStatus, AnalysisResult, RobustnessResult, EvaluationResult"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "backend/app/api/routes.py",
+        "purpose": "FastAPI route controllers exposing inference, robustness, evaluation, and job polling.",
+        "responsibilities": [
+          "Exposes /health, /model, /analyze, /robustness, /evaluation/run, /jobs/{job_id}"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "backend/app/models/detector.py",
+        "purpose": "Model adapter managing Wav2Vec2 inference and safe fallback abstention.",
+        "responsibilities": [
+          "Loads Hugging Face or checkpoint weights",
+          "Discovers label mapping",
+          "Computes softmax probabilities",
+          "Falls back to neutral abstention if weights fail"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "backend/app/audio/processor.py",
+        "purpose": "Audio ingestion, format validation, mono downmixing, resampling, chunking, and visualization generation.",
+        "responsibilities": [
+          "Validates file size/ext",
+          "Downmixes to mono",
+          "Resamples to 16kHz",
+          "Generates waveform downsamples and Mel-spectrograms"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "backend/app/audio/transforms.py",
+        "purpose": "Audio degradation filters simulating real-world channel perturbations.",
+        "responsibilities": [
+          "Applies noise, 8kHz downsampling, Butterworth lowpass, gain scaling, and MP3 compression"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "backend/app/jobs/manager.py",
+        "purpose": "In-memory asynchronous background task queue with bounded history.",
+        "responsibilities": [
+          "Tracks job states",
+          "Enforces concurrency limits via asyncio.Semaphore",
+          "Evicts older jobs > 100"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "backend/app/evaluation/pipeline.py",
+        "purpose": "Dataset manifest validation, speaker-disjoint splitting, threshold tuning, and statistical metric evaluation.",
+        "responsibilities": [
+          "Computes EER, AUC-ROC, Risk-Coverage, AURC, and 95% Bootstrap CIs"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "frontend/src/App.tsx",
+        "purpose": "Root React application with React Router DOM routes and QueryClientProvider.",
+        "responsibilities": [
+          "Configures routing for /, /robustness, /research, /about",
+          "Sets React Query cache defaults"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "frontend/src/lib/api.ts",
+        "purpose": "Typed API client communicating with FastAPI backend.",
+        "responsibilities": [
+          "Wraps fetch for /analyze, /robustness, /evaluation, /health, /jobs",
+          "Supports custom API URL override"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "frontend/src/lib/types.ts",
+        "purpose": "TypeScript interface definitions mirroring backend Pydantic models.",
+        "responsibilities": [
+          "Provides typing for AnalysisResult, RobustnessResult, EvaluationResult, Verdict, JobInfo"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "frontend/src/pages/AnalyzePage.tsx",
+        "purpose": "Interactive single-clip deepfake detection dashboard.",
+        "responsibilities": [
+          "Audio drag-and-drop",
+          "Microphone PCM WAV recording",
+          "Preset sample loading",
+          "Waveform and chunk inspection",
+          "Forensic JSON export"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "frontend/src/pages/RobustnessPage.tsx",
+        "purpose": "Interactive audio perturbation testing laboratory.",
+        "responsibilities": [
+          "Configures distortion parameters",
+          "Runs original vs distorted inference",
+          "Displays score delta and stability metrics"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "frontend/src/pages/ResearchPage.tsx",
+        "purpose": "Evaluation dashboard for benchmark datasets.",
+        "responsibilities": [
+          "Configures dataset manifests",
+          "Runs asynchronous evaluation",
+          "Displays EER, ROC curves, confusion matrices, and past run history"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "research/model.py",
+        "purpose": "EchoProof neural network architecture.",
+        "responsibilities": [
+          "Wav2Vec2 backbone with freeze depth",
+          "Attentive Statistical Pooling (ASP)",
+          "FocalLoss"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "research/train.py",
+        "purpose": "Model training loop with acoustic augmentation, EER checkpointing, and validation threshold calibration.",
+        "responsibilities": [
+          "Trains classifier on custom manifests",
+          "Saves best_model_eer.pt"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "research/benchmark.py",
+        "purpose": "Standardized benchmarking script executing distortion sweeps over labeled datasets.",
+        "responsibilities": [
+          "Evaluates clean and corrupted audio across 11 conditions",
+          "Outputs JSON, Markdown, and LaTeX tables"
+        ],
+        "status": "implemented"
+      },
+      {
+        "path": "research/augmentations.py",
+        "purpose": "NumPy and SciPy real-world acoustic distortion pipeline.",
+        "responsibilities": [
+          "Applies AdditiveNoise, RoomImpulseResponse, TelephonyBandpass, CodecCompression, Clipping, PacketLoss"
+        ],
+        "status": "implemented"
+      }
+    ],
+    "configuration_files": [
+      ".env.example",
+      "backend/requirements.txt",
+      "frontend/package.json",
+      "frontend/tsconfig.json",
+      "frontend/vite.config.ts",
+      "frontend/capacitor.config.json",
+      "research/configs/default_experiment.json"
+    ],
+    "test_directories": [
+      "backend/tests"
+    ],
+    "documentation_files": [
+      "README.md",
+      "DOCUMENTATION.md",
+      "docs/ARCHITECTURE.md",
+      "docs/RESEARCH_PAPER.md",
+      "docs/COLLEGE_DEMO_GUIDE.md",
+      "docs/TRAINING.md"
+    ],
+    "generated_or_ignored_files": [
+      "backend/temp_audio/ (ephemeral uploaded audio chunks, auto-cleaned)",
+      "research/results/benchmark_run/ (generated evaluation artifacts)",
+      "research/results/real_benchmark_run/ (generated evaluation artifacts)",
+      "frontend/dist/ (production build output directory)",
+      "frontend/node_modules/ (external JS dependencies)",
+      ".venv/ (Python virtual environment)"
+    ],
+    "entry_points": [
+      {
+        "name": "Backend Entry Point",
+        "path": "backend/app/main.py",
+        "command": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+      },
+      {
+        "name": "Frontend Entry Point",
+        "path": "frontend/src/main.tsx",
+        "command": "npm run dev"
+      },
+      {
+        "name": "Research Training Entry Point",
+        "path": "research/train.py",
+        "command": "python research/train.py --train_csv ... --val_csv ..."
+      },
+      {
+        "name": "Research Benchmark Entry Point",
+        "path": "research/benchmark.py",
+        "command": "python research/benchmark.py --manifest_csv ... --audio_dir ..."
+      }
+    ]
+  },
+  "architecture": {
+    "architectural_style": "Client-Server Layered Asynchronous Service Architecture",
+    "system_components": [
+      {
+        "name": "Client Presentation Layer",
+        "description": "React 19 Single Page Application providing interactive visual feedback, browser audio recording, and local parameter adjustment."
+      },
+      {
+        "name": "API & Gateway Layer",
+        "description": "FastAPI ASGI service managing CORS, multipart ingestion, route dispatch, and background task scheduling."
+      },
+      {
+        "name": "Audio Processing Pipeline",
+        "description": "Deterministic ingestion pipeline handling mono conversion, 16 kHz polyphase resampling, energy validation, downsampling envelopes, and chunk slicing."
+      },
+      {
+        "name": "Neural Inference & Model Adapter",
+        "description": "PyTorch / Transformers adapter managing Wav2Vec2 feature extraction, pooling, logits generation, dynamic label mapping, and graceful abstention."
+      },
+      {
+        "name": "Acoustic Robustness Engine",
+        "description": "Digital signal processing transforms executing additive noise, telephone bandpass, Butterworth filtering, and lossy compression."
+      },
+      {
+        "name": "Evaluation & Metrics Engine",
+        "description": "Statistical pipeline computing EER, ROC-AUC, Risk-Coverage (AURC), and 95% Bootstrap Confidence Intervals over speaker-disjoint splits."
+      },
+      {
+        "name": "Asynchronous Job Queue",
+        "description": "In-memory semaphore-bounded queue coordinating long-running background dataset evaluations."
+      }
+    ],
+    "component_responsibilities": [
+      {
+        "component": "AudioProcessor",
+        "responsibilities": [
+          "Validate file headers and duration",
+          "Downmix channels",
+          "Resample to 16,000 Hz",
+          "Partition chunks > 4s",
+          "Generate waveform points and Mel spectrogram"
+        ]
+      },
+      {
+        "component": "Wav2Vec2Detector",
+        "responsibilities": [
+          "Load Hugging Face or custom checkpoint weights",
+          "Inspect config.id2label dynamically",
+          "Compute forward pass and softmax probabilities",
+          "Apply genuine/synthetic thresholds",
+          "Delegate to AcousticSpectralDetector if loading fails"
+        ]
+      },
+      {
+        "component": "AudioTransformer",
+        "responsibilities": [
+          "Inject Gaussian noise at target SNR",
+          "Degrade to 8 kHz telephone bandwidth",
+          "Apply Butterworth lowpass filter",
+          "Apply gain boost/attenuation",
+          "Encode/decode MP3 via FFmpeg"
+        ]
+      },
+      {
+        "component": "JobManager",
+        "responsibilities": [
+          "Assign UUIDs to async tasks",
+          "Throttle execution with asyncio.Semaphore",
+          "Track lifecycle: PENDING -> PROCESSING -> COMPLETED/FAILED",
+          "Evict old entries when capacity exceeds 100"
+        ]
+      },
+      {
+        "component": "EvaluationPipeline",
+        "responsibilities": [
+          "Parse and validate CSV manifest",
+          "Partition speaker-disjoint splits",
+          "Tune threshold on validation split",
+          "Compute confusion matrix, EER, and bootstrap CIs"
+        ]
+      }
+    ],
+    "component_dependencies": [
+      {
+        "component": "app.api.routes",
+        "depends_on": [
+          "app.audio.processor",
+          "app.audio.transforms",
+          "app.models.detector",
+          "app.jobs.manager",
+          "app.evaluation.pipeline"
+        ]
+      },
+      {
+        "component": "app.models.detector",
+        "depends_on": [
+          "transformers",
+          "torch",
+          "research.model"
+        ]
+      },
+      {
+        "component": "app.evaluation.pipeline",
+        "depends_on": [
+          "scipy",
+          "sklearn",
+          "pandas",
+          "app.audio.processor",
+          "app.models.detector"
+        ]
+      },
+      {
+        "component": "frontend (React)",
+        "depends_on": [
+          "backend REST API (:8000)"
+        ]
+      }
+    ],
+    "communication_patterns": [
+      "Client to Backend: HTTP REST requests (JSON bodies and multipart/form-data audio file uploads).",
+      "Asynchronous Job Coordination: Client POST to start evaluation receives job_id; client periodically polls GET /api/v1/jobs/{job_id} until status is completed.",
+      "Vite Proxy: Frontend development server proxies /api requests to http://localhost:8000 to prevent local CORS issues.",
+      "Internal Backend Modules: Direct asynchronous and synchronous Python function calls."
+    ],
+    "data_flow": [
+      "1. User drops audio file or records microphone speech in AnalyzePage.",
+      "2. AnalyzePage sends POST multipart/form-data to /api/v1/analyze.",
+      "3. Route handler validates file size and extension, saves temporary audio file in backend/temp_audio.",
+      "4. AudioProcessor loads audio with soundfile/torchaudio, downmixes to mono, and checks RMS energy >= 1e-6.",
+      "5. AudioProcessor resamples audio to 16,000 Hz and segments into 4.0-second chunk windows.",
+      "6. AudioProcessor generates 800 downsampled waveform points and a Mel-spectrogram matrix for frontend rendering.",
+      "7. Detector passes each audio chunk through wav2vec 2.0 to obtain softmax probabilities for bonafide and spoof.",
+      "8. Chunk scores are averaged via arithmetic mean; thresholds are applied to determine LIKELY_GENUINE, LIKELY_SYNTHETIC, or UNCERTAIN.",
+      "9. AnalysisResult is serialized to JSON and returned to client; temporary audio file is deleted in finally block.",
+      "10. Client renders animated verdict badge, score bar, interactive waveform, and forensic details."
+    ],
+    "request_lifecycle": [
+      "Client Request -> FastAPI middleware (CORS) -> Router dispatch -> Endpoint function -> Temp audio write -> Validation & AudioProcessor -> Detector inference -> Postprocessing & Metrics -> Temp audio cleanup -> JSON response serialization -> Client state update."
+    ],
+    "background_jobs": [
+      "Dataset evaluation initiated via POST /api/v1/evaluation/run runs asynchronously via FastAPI BackgroundTasks.",
+      "Job state is registered in JobManager with status 'pending' and updated to 'processing', updating numeric progress (0.0 to 1.0) and messages.",
+      "Client polls GET /api/v1/jobs/{job_id} every 1.5 seconds until status reaches 'completed' or 'failed'.",
+      "Upon completion, evaluation results and predictions.csv are serialized to research/results/{job_id}/ on disk."
+    ],
+    "external_integrations": [
+      "Hugging Face Transformers Model Hub: Pretrained model weights download (MelodyMachine/Deepfake-audio-detection-V2 and facebook/wav2vec2-base).",
+      "System FFmpeg binary: Invoked via subprocess by AudioTransformer for MP3 compression stress testing."
+    ],
+    "architecture_diagram_mermaid": "graph TD\n    Client[React 19 Frontend :5173] -->|Audio Upload / Mic Stream| Backend[FastAPI Backend :8000]\n    \n    subgraph Ingestion & Preprocessing\n        Backend --> AudioProc[AudioProcessor]\n        AudioProc --> Downmix[Mono Downmixing]\n        Downmix --> Resample[16 kHz Polyphase Resampling]\n        Resample --> Chunker[Sliding Window Chunking 4s]\n        AudioProc --> Visuals[Mel-Spectrogram & Waveform Generator]\n    end\n    \n    subgraph Model & Inference\n        Chunker --> Detector[Wav2Vec2Detector Adapter]\n        Detector -->|Default| HFModel[MelodyMachine/Deepfake-audio-detection-V2]\n        Detector -->|Checkpoint| CustomModel[EchoProofClassifier + ASP]\n        Detector -->|Offline Fallback| Abstain[AcousticSpectralDetector: Uncertain]\n        HFModel --> Softmax[Softmax Normalized Spoof Probability]\n        CustomModel --> Softmax\n        Softmax --> Aggregator[Arithmetic Mean Chunk Aggregation]\n        Aggregator --> DecisionEngine[Decision Thresholds: <=0.35 Genuine, >=0.65 Synthetic]\n    end\n    \n    subgraph Robustness & Evaluation\n        Backend --> RobustnessLab[AudioTransformer: 11 Distortions]\n        RobustnessLab --> Detector\n        Backend --> JobMgr[JobManager: Async Background Queue]\n        JobMgr --> EvalPipeline[EvaluationPipeline]\n        EvalPipeline --> SpkSplit[Speaker-Disjoint Split]\n        EvalPipeline --> Metrics[EER, AUC-ROC, AURC, Bootstrap CIs]\n    end",
+    "architecture_decisions": [
+      {
+        "decision": "Use fine-tuned wav2vec 2.0 self-supervised representations over handcrafted MFCCs + CNNs.",
+        "reason": "Handcrafted MFCCs discard phase information and fine temporal dynamics. Pretrained wav2vec 2.0 captures rich acoustic contextual embeddings that expose subtle vocoder artifacts and synthetic harmonic discontinuities.",
+        "alternatives": [
+          "Log-Mel Spectrograms + ResNet/MobileNet",
+          "RawNet2",
+          "Traditional GMM-UBM on MFCCs"
+        ],
+        "evidence": [
+          "backend/app/models/detector.py:123",
+          "docs/ARCHITECTURE.md:52",
+          "docs/RESEARCH_PAPER.md:31"
+        ],
+        "confidence": "high"
+      },
+      {
+        "decision": "Enforce explicit semantic label discovery rather than hardcoding class indices.",
+        "reason": "Different model training pipelines sort classes differently (e.g. ASVspoof uses 0:bonafide, 1:spoof, whereas Hugging Face AudioFolder sorts alphabetically into 0:fake, 1:real). Hardcoding index 1 as synthetic caused complete inverted predictions.",
+        "alternatives": [
+          "Hardcoded index assumptions",
+          "Manual environment variable index overrides"
+        ],
+        "evidence": [
+          "backend/app/models/detector.py:234-246",
+          "backend/tests/test_detector_mapping.py:31-56",
+          "DOCUMENTATION.md:294-300"
+        ],
+        "confidence": "high"
+      },
+      {
+        "decision": "Neutral abstention (Uncertain verdict) when model weights fail to load, refusing spectral heuristic authenticity verdicts.",
+        "reason": "Handwritten spectral heuristics (spectral centroid, high-frequency energy ratio) cannot reliably distinguish authentic human voice from modern neural speech. Reporting a heuristic result as 'Genuine' is dangerous in forensic contexts.",
+        "alternatives": [
+          "Using heuristic detector as full fallback verdict provider",
+          "Returning 500 Internal Server Error immediately"
+        ],
+        "evidence": [
+          "backend/app/models/detector.py:75-121",
+          "docs/TRAINING.md:6",
+          "docs/ARCHITECTURE.md:62"
+        ],
+        "confidence": "high"
+      },
+      {
+        "decision": "Strict speaker-disjoint dataset splitting during validation and threshold tuning.",
+        "reason": "Random sample-level splitting allows audio from the same speaker to appear in both training and test sets, enabling models to memorize speaker identities (biometric leakage) rather than detecting spoofing artifacts.",
+        "alternatives": [
+          "Random stratified train/test split",
+          "Temporal order split"
+        ],
+        "evidence": [
+          "backend/app/evaluation/pipeline.py:97-133",
+          "docs/RESEARCH_PAPER.md:55-59",
+          "docs/TRAINING.md:9"
+        ],
+        "confidence": "high"
+      },
+      {
+        "decision": "Encode microphone audio directly to 16-bit PCM WAV in the browser using Web Audio API.",
+        "reason": "Standard browser MediaRecorder records in WebM/Opus format, which frequently fails client-side decoding in certain desktop/mobile browsers or causes sample rate header mismatches when decoded server-side.",
+        "alternatives": [
+          "MediaRecorder with WebM Opus",
+          "WAV encoding on the server from raw WebM"
+        ],
+        "evidence": [
+          "frontend/src/pages/AnalyzePage.tsx:58-100",
+          "git log commit 9b29d8b"
+        ],
+        "confidence": "high"
+      }
+    ]
+  },
+  "feature_inventory": [
+    {
+      "feature_id": "feat_single_audio_analysis",
+      "name": "Single Audio Deepfake Analysis",
+      "description": "Upload or record an audio file to determine whether speech is authentic human voice, synthetic deepfake, or uncertain, complete with temporal chunk analysis, waveform envelope, and spectrogram.",
+      "user_workflow": [
+        "User opens Analyze page.",
+        "User drags and drops an audio file, selects a preloaded sample, or clicks Record Voice.",
+        "User clicks Analyze Recording.",
+        "System displays animated progress, followed by a color-coded VerdictBadge (Likely Genuine, Likely Synthetic, or Uncertain).",
+        "System renders uncalibrated probability score bar, audio metadata, waveform envelope, and chunk breakdown for audio > 4s.",
+        "User can download the complete forensic analysis dossier as a JSON file."
+      ],
+      "implementation_status": "implemented",
+      "frontend_files": [
+        "frontend/src/pages/AnalyzePage.tsx",
+        "frontend/src/components/ui.tsx"
+      ],
+      "backend_files": [
+        "backend/app/api/routes.py",
+        "backend/app/audio/processor.py",
+        "backend/app/models/detector.py"
+      ],
+      "database_dependencies": [],
+      "api_dependencies": [
+        "POST /api/v1/analyze"
+      ],
+      "external_dependencies": [
+        "Hugging Face Transformers"
+      ],
+      "validation_and_error_handling": [
+        "Validates file size <= 25MB",
+        "Validates audio extensions (.wav, .mp3, etc.)",
+        "Rejects audio < 0.5s or > 300s",
+        "Rejects silent audio (RMS < 1e-6)"
+      ],
+      "test_coverage": [
+        "backend/tests/test_api.py:test_analyze_endpoint",
+        "backend/tests/test_audio_processor.py",
+        "backend/tests/test_detector_mapping.py"
+      ],
+      "limitations": [
+        "Audio longer than 4s is aggregated via arithmetic mean across chunks."
+      ],
+      "evidence": [
+        "backend/app/api/routes.py:68-186",
+        "frontend/src/pages/AnalyzePage.tsx:12-250"
+      ]
+    },
+    {
+      "feature_id": "feat_robustness_laboratory",
+      "name": "Audio Robustness Testing Laboratory",
+      "description": "Applies controlled physical and channel perturbations (Gaussian noise, 8 kHz telephony, Butterworth lowpass filtering, volume scaling, MP3 compression) to an audio file and measures score shifts and verdict flips.",
+      "user_workflow": [
+        "User navigates to Robustness Lab page.",
+        "User uploads audio or loads preset benchmark sample.",
+        "User adjusts noise SNR, resample rate, lowpass cutoff, and gain sliders.",
+        "User clicks Run Perturbation Suite.",
+        "System displays side-by-side comparison table of original vs transformed scores, score standard deviation, max score delta, and threshold crossings."
+      ],
+      "implementation_status": "implemented",
+      "frontend_files": [
+        "frontend/src/pages/RobustnessPage.tsx"
+      ],
+      "backend_files": [
+        "backend/app/api/routes.py",
+        "backend/app/audio/transforms.py",
+        "backend/app/uncertainty/stability.py"
+      ],
+      "database_dependencies": [],
+      "api_dependencies": [
+        "POST /api/v1/robustness"
+      ],
+      "external_dependencies": [
+        "SciPy signal processing",
+        "FFmpeg (for MP3 compression)"
+      ],
+      "validation_and_error_handling": [
+        "Catches transformation exceptions per perturbation so individual failures do not abort the entire suite.",
+        "Returns transformation_succeeded=false with error string if an individual transform fails."
+      ],
+      "test_coverage": [
+        "backend/tests/test_transforms.py"
+      ],
+      "limitations": [
+        "MP3 compression relies on system FFmpeg; if absent, simulated quantization noise is applied."
+      ],
+      "evidence": [
+        "backend/app/api/routes.py:189-320",
+        "backend/app/audio/transforms.py:28-149",
+        "frontend/src/pages/RobustnessPage.tsx:12-200"
+      ]
+    },
+    {
+      "feature_id": "feat_research_dataset_evaluation",
+      "name": "Research Dataset Evaluation & Benchmark Dashboard",
+      "description": "Evaluates detector performance over labeled dataset manifests with speaker-disjoint partitioning, threshold tuning on validation data, and statistical metrics with bootstrap confidence intervals.",
+      "user_workflow": [
+        "User navigates to Research page.",
+        "User specifies dataset manifest path, metadata CSV, and speaker column.",
+        "User sets validation split ratio and toggles Speaker-Disjoint Split.",
+        "User clicks Run Benchmark Evaluation.",
+        "System creates async job, polls progress, and renders EER, AUC-ROC, Accuracy, F1, Confusion Matrix, and ROC curve.",
+        "User can inspect past evaluation runs or export predictions CSV."
+      ],
+      "implementation_status": "implemented",
+      "frontend_files": [
+        "frontend/src/pages/ResearchPage.tsx"
+      ],
+      "backend_files": [
+        "backend/app/api/routes.py",
+        "backend/app/evaluation/pipeline.py",
+        "backend/app/jobs/manager.py"
+      ],
+      "database_dependencies": [],
+      "api_dependencies": [
+        "POST /api/v1/evaluation/run",
+        "GET /api/v1/evaluation/results",
+        "GET /api/v1/evaluation/results/{job_id}",
+        "GET /api/v1/evaluation/export/{job_id}",
+        "GET /api/v1/jobs/{job_id}"
+      ],
+      "external_dependencies": [
+        "Scikit-learn",
+        "SciPy"
+      ],
+      "validation_and_error_handling": [
+        "Validates manifest CSV columns (filename, label).",
+        "Maps heterogeneous label names (bonafide, real, spoof, synthetic).",
+        "Warns on duplicate filenames or missing audio files."
+      ],
+      "test_coverage": [
+        "backend/tests/test_metrics.py:test_compute_eer_perfect_separation",
+        "backend/tests/test_metrics.py:test_compute_metrics",
+        "backend/tests/test_metrics.py:test_risk_coverage_aurc"
+      ],
+      "limitations": [
+        "Evaluations run on the backend host; large datasets require sufficient disk space and processing time."
+      ],
+      "evidence": [
+        "backend/app/evaluation/pipeline.py:35-345",
+        "backend/app/api/routes.py:324-410",
+        "frontend/src/pages/ResearchPage.tsx:12-250"
+      ]
+    },
+    {
+      "feature_id": "feat_offline_fault_tolerance",
+      "name": "Offline Model Abstention & Fault Tolerance",
+      "description": "Graceful degradation when neural model weights cannot load (offline environment, rate limiting, or missing files). System abstains with an UNCERTAIN verdict and explicit warning rather than reporting false authentic results.",
+      "user_workflow": [
+        "Backend starts without network access or model weights.",
+        "Wav2Vec2Detector catches loading failure and activates AcousticSpectralDetector fallback.",
+        "Inference requests return verdict=UNCERTAIN with warning: 'The speech detector could not load its neural model...'",
+        "Frontend renders neutral warning badge without falsely confirming authenticity."
+      ],
+      "implementation_status": "implemented",
+      "frontend_files": [
+        "frontend/src/components/ui.tsx"
+      ],
+      "backend_files": [
+        "backend/app/models/detector.py"
+      ],
+      "database_dependencies": [],
+      "api_dependencies": [
+        "GET /api/v1/health",
+        "GET /api/v1/model",
+        "POST /api/v1/analyze"
+      ],
+      "external_dependencies": [],
+      "validation_and_error_handling": [
+        "Returns 503 if backend is completely uninitialized.",
+        "Returns 200 with UNCERTAIN and warning if model fails to load."
+      ],
+      "test_coverage": [
+        "backend/tests/test_detector_mapping.py:test_score_interpretation_direction"
+      ],
+      "limitations": [
+        "Inference cannot detect deepfakes when offline unless weights were previously cached in Hugging Face cache directory or provided as a local checkpoint."
+      ],
+      "evidence": [
+        "backend/app/models/detector.py:75-121",
+        "backend/app/models/detector.py:174-181"
+      ]
+    },
+    {
+      "feature_id": "feat_research_training_engine",
+      "name": "Research Training & Checkpointing Engine",
+      "description": "Standalone PyTorch training script featuring Wav2Vec2 backbone with configurable layer freezing, Attentive Statistical Pooling, Focal Loss, acoustic distortion augmentation, and EER-based checkpoint saving.",
+      "user_workflow": [
+        "Researcher prepares train and validation CSV manifests.",
+        "Researcher runs python research/train.py --train_csv ... --val_csv ....",
+        "Trainer logs loss, validation EER, and AUC-ROC each epoch.",
+        "Trainer saves best_model_eer.pt and decision_thresholds.json.",
+        "User configures ECHOPROOF_CHECKPOINT in .env to load the trained model into the backend."
+      ],
+      "implementation_status": "implemented",
+      "frontend_files": [],
+      "backend_files": [
+        "backend/app/models/detector.py:182-221"
+      ],
+      "database_dependencies": [],
+      "api_dependencies": [],
+      "external_dependencies": [
+        "PyTorch",
+        "Hugging Face Transformers"
+      ],
+      "validation_and_error_handling": [
+        "Checks checkpoint integrity (model_state_dict key).",
+        "Validates sample rates and audio lengths."
+      ],
+      "test_coverage": [],
+      "limitations": [
+        "Requires GPU for training at scale (e.g. XLS-R 300M)."
+      ],
+      "evidence": [
+        "research/train.py:1-396",
+        "research/model.py:43-138"
+      ]
+    },
+    {
+      "feature_id": "feat_browser_pcm_recorder",
+      "name": "Client-Side PCM WAV Audio Recording",
+      "description": "High-fidelity browser microphone audio recording using Web Audio API ScriptProcessorNode to capture uncompressed 16-bit PCM WAV audio, preventing container codec decoding failures.",
+      "user_workflow": [
+        "User clicks Record Voice on Analyze page.",
+        "Browser requests microphone permission.",
+        "Live recording timer increments.",
+        "User clicks Stop Recording.",
+        "Script constructs in-memory 44-byte WAV header and PCM samples, creating a Blob File.",
+        "File is automatically loaded into the analysis workspace."
+      ],
+      "implementation_status": "implemented",
+      "frontend_files": [
+        "frontend/src/pages/AnalyzePage.tsx:58-135"
+      ],
+      "backend_files": [
+        "backend/app/audio/processor.py"
+      ],
+      "database_dependencies": [],
+      "api_dependencies": [],
+      "external_dependencies": [
+        "Browser Web Audio API"
+      ],
+      "validation_and_error_handling": [
+        "Checks navigator.mediaDevices.getUserMedia availability.",
+        "Rejects empty recordings."
+      ],
+      "test_coverage": [
+        "Verified in live browser session"
+      ],
+      "limitations": [
+        "ScriptProcessorNode runs on audio thread; future update could use AudioWorklet."
+      ],
+      "evidence": [
+        "frontend/src/pages/AnalyzePage.tsx:58-135",
+        "git commit 9b29d8b"
+      ]
+    }
+  ],
+  "frontend_details": {
+    "framework": "React 19 (TypeScript) with Vite 8 bundler",
+    "entry_points": [
+      "frontend/index.html",
+      "frontend/src/main.tsx",
+      "frontend/src/App.tsx"
+    ],
+    "pages_and_routes": [
+      {
+        "path": "/",
+        "page": "AnalyzePage",
+        "component": "frontend/src/pages/AnalyzePage.tsx",
+        "purpose": "Single audio inference, mic recording, waveform/spectrogram rendering, and forensic export."
+      },
+      {
+        "path": "/robustness",
+        "page": "RobustnessPage",
+        "component": "frontend/src/pages/RobustnessPage.tsx",
+        "purpose": "Interactive audio perturbation lab testing noise, telephony, filtering, and gain."
+      },
+      {
+        "path": "/research",
+        "page": "ResearchPage",
+        "component": "frontend/src/pages/ResearchPage.tsx",
+        "purpose": "Dataset evaluation, ROC curves, confusion matrices, and bootstrap metrics."
+      },
+      {
+        "path": "/about",
+        "page": "AboutPage",
+        "component": "frontend/src/pages/AboutPage.tsx",
+        "purpose": "Project documentation, architecture explanation, BibTeX citation, and API URL settings."
+      }
+    ],
+    "components": [
+      {
+        "name": "Layout",
+        "path": "frontend/src/components/Layout.tsx",
+        "purpose": "Application header, navigation links, mobile hamburger menu, live backend connection health pill."
+      },
+      {
+        "name": "Card",
+        "path": "frontend/src/components/ui.tsx",
+        "purpose": "Glassmorphic styled container card with subtle borders and shadows."
+      },
+      {
+        "name": "Button",
+        "path": "frontend/src/components/ui.tsx",
+        "purpose": "Accessible button with primary, secondary, danger, and outline variants with loading spinners."
+      },
+      {
+        "name": "VerdictBadge",
+        "path": "frontend/src/components/ui.tsx",
+        "purpose": "Color-coded pill for LIKELY_GENUINE (teal), LIKELY_SYNTHETIC (amber/red), and UNCERTAIN (slate)."
+      },
+      {
+        "name": "ScoreBar",
+        "path": "frontend/src/components/ui.tsx",
+        "purpose": "Animated progress bar displaying spoof probability with decision boundary indicator marks."
+      },
+      {
+        "name": "Waveform",
+        "path": "frontend/src/components/ui.tsx",
+        "purpose": "Canvas or SVG representation of audio amplitude peaks and decay over time."
+      },
+      {
+        "name": "WarningBox",
+        "path": "frontend/src/components/ui.tsx",
+        "purpose": "Callout component for threshold calibration alerts and model abstention notices."
+      },
+      {
+        "name": "ConnectionStatus",
+        "path": "frontend/src/components/ui.tsx",
+        "purpose": "Real-time indicator showing backend connectivity and model loading state."
+      }
+    ],
+    "state_management": [
+      "React Query (@tanstack/react-query): QueryClientProvider wrapping App, caching health and evaluation queries with refetchOnWindowFocus=false.",
+      "React useState/useRef: Local state for file selection, recording duration, audio playback, and perturbation slider values.",
+      "localStorage: Stores custom backend API base URL under key 'echoProofApiUrl' (defaults to '/api/v1')."
+    ],
+    "api_client_configuration": [
+      "Configured in frontend/src/lib/api.ts.",
+      "Default base URL: /api/v1.",
+      "Proxy: Vite config proxies /api to http://localhost:8000 during local development.",
+      "Runtime custom URL: Configurable in AboutPage (localStorage.getItem('echoProofApiUrl'))."
+    ],
+    "forms_and_validation": [
+      "File dropzone validates MIME types and audio extensions.",
+      "Perturbation controls bound to strict slider ranges (SNR 0-30 dB, Resample 4000-16000 Hz, Cutoff 1000-8000 Hz, Gain -18 to +6 dB).",
+      "Research manifest inputs validate required file path and CSV name."
+    ],
+    "authentication_flow": [],
+    "ui_design_patterns": [
+      "Glassmorphism with backdrop filters and translucent borders (var(--glass-bg), var(--glass-border)).",
+      "Curated HSL color palette featuring deep teal accents (#0F766E), stone backgrounds (#FAFAF9), and semantic warning tones.",
+      "Framer Motion micro-animations for card entry, button hovers, and dynamic score expansion.",
+      "Fully responsive desktop navigation transforming into a mobile drawer on smaller viewports."
+    ],
+    "error_handling": [
+      "API errors display inline WarningBox callouts with detail strings parsed from FastAPI HTTPExceptions.",
+      "Microphone access denials trigger clear user-facing permission error messages.",
+      "Failed evaluations provide error descriptions returned from background job tracking."
+    ],
+    "environment_variables": [],
+    "known_issues": [
+      "Earlier build lacked committed src/lib/types.ts and src/lib/api.ts (resolved and created in previous session).",
+      "Recharts responsive container may log minor sizing warnings when rendered inside hidden tabs before initial display."
+    ]
+  },
+  "backend_details": {
+    "framework": "FastAPI with Uvicorn ASGI server",
+    "entry_points": [
+      "backend/app/main.py"
+    ],
+    "modules": [
+      {
+        "name": "app.config",
+        "path": "backend/app/config.py",
+        "purpose": "Configuration variables, paths, and defaults."
+      },
+      {
+        "name": "app.schemas",
+        "path": "backend/app/schemas.py",
+        "purpose": "Pydantic request and response schemas."
+      },
+      {
+        "name": "app.api.routes",
+        "path": "backend/app/api/routes.py",
+        "purpose": "REST API route endpoints."
+      },
+      {
+        "name": "app.audio.processor",
+        "path": "backend/app/audio/processor.py",
+        "purpose": "Audio ingestion, conversion, validation, and feature generation."
+      },
+      {
+        "name": "app.audio.transforms",
+        "path": "backend/app/audio/transforms.py",
+        "purpose": "Audio degradation and perturbation filters."
+      },
+      {
+        "name": "app.models.detector",
+        "path": "backend/app/models/detector.py",
+        "purpose": "Deepfake detector adapter and neutral abstention fallback."
+      },
+      {
+        "name": "app.jobs.manager",
+        "path": "backend/app/jobs/manager.py",
+        "purpose": "Asynchronous background task queue."
+      },
+      {
+        "name": "app.evaluation.pipeline",
+        "path": "backend/app/evaluation/pipeline.py",
+        "purpose": "Dataset splitting, metrics, and bootstrap CIs."
+      },
+      {
+        "name": "app.uncertainty.stability",
+        "path": "backend/app/uncertainty/stability.py",
+        "purpose": "Prediction stability and perturbation analysis."
+      }
+    ],
+    "services": [
+      {
+        "name": "AudioProcessor",
+        "purpose": "Soundfile/Torchaudio loader, polyphase resampler, and Mel spectrogram generator."
+      },
+      {
+        "name": "AudioTransformer",
+        "purpose": "Perturbation generator applying Gaussian noise, telephony downsampling, and filtering."
+      },
+      {
+        "name": "Wav2Vec2Detector",
+        "purpose": "PyTorch neural classifier adapter scoring audio tensors."
+      },
+      {
+        "name": "JobManager",
+        "purpose": "Bounded in-memory task manager coordinating evaluation jobs."
+      }
+    ],
+    "controllers_and_routes": [
+      {
+        "route": "GET /",
+        "controller": "app.main:root"
+      },
+      {
+        "route": "GET /api/v1/health",
+        "controller": "app.api.routes:health"
+      },
+      {
+        "route": "GET /api/v1/model",
+        "controller": "app.api.routes:model_info"
+      },
+      {
+        "route": "POST /api/v1/analyze",
+        "controller": "app.api.routes:analyze_audio"
+      },
+      {
+        "route": "POST /api/v1/robustness",
+        "controller": "app.api.routes:robustness_test"
+      },
+      {
+        "route": "POST /api/v1/evaluation/run",
+        "controller": "app.api.routes:start_evaluation"
+      },
+      {
+        "route": "GET /api/v1/evaluation/results",
+        "controller": "app.api.routes:list_evaluation_results"
+      },
+      {
+        "route": "GET /api/v1/evaluation/results/{job_id}",
+        "controller": "app.api.routes:get_evaluation_result"
+      },
+      {
+        "route": "GET /api/v1/evaluation/export/{job_id}",
+        "controller": "app.api.routes:export_evaluation"
+      },
+      {
+        "route": "GET /api/v1/jobs/{job_id}",
+        "controller": "app.api.routes:get_job"
+      },
+      {
+        "route": "GET /api/v1/jobs/{job_id}/events",
+        "controller": "app.api.routes:get_job_events"
+      }
+    ],
+    "middleware": [
+      {
+        "name": "CORSMiddleware",
+        "configuration": "Configured with CORS_ORIGINS allowing localhost:5173, localhost:5174, localhost:3000, credentials=True, all methods and headers."
+      }
+    ],
+    "authentication": [],
+    "authorization": [],
+    "business_logic": [
+      "Inference scores represent probability of synthetic voice: P(spoof) = Softmax(logits)[spoof_index].",
+      "Decision thresholds categorize speech: P(spoof) <= 0.35 -> LIKELY_GENUINE, P(spoof) >= 0.65 -> LIKELY_SYNTHETIC, otherwise UNCERTAIN.",
+      "Audio exceeding 4.0s duration is split into sequential 4.0s chunks; final score is the mean across chunks.",
+      "Evaluation requires disjoint speakers between validation and test splits to prevent memorization.",
+      "EER is determined by the intersection of False Acceptance Rate (FAR) and False Rejection Rate (FRR) via Brentq optimization."
+    ],
+    "background_processing": [
+      "FastAPI BackgroundTasks execute run_evaluation.",
+      "JobManager coordinates progress updates (0.0 to 1.0) and status transitions.",
+      "Concurrency throttled with asyncio.Semaphore(MAX_CONCURRENT_JOBS)."
+    ],
+    "external_service_clients": [
+      "Hugging Face Transformers AutoModelForAudioClassification / AutoFeatureExtractor."
+    ],
+    "logging_and_error_handling": [
+      "Standard library logging with INFO level by default.",
+      "AudioProcessingError raises HTTP 422 with validation details.",
+      "Model failures log stack traces and return HTTP 503 or neutral abstention results.",
+      "Temporary audio files are cleaned up in finally blocks."
+    ],
+    "environment_variables": [
+      "ECHOPROOF_MODEL_ID",
+      "ECHOPROOF_CHECKPOINT",
+      "ECHOPROOF_DEVICE",
+      "ECHOPROOF_THRESHOLD_GENUINE",
+      "ECHOPROOF_THRESHOLD_SYNTHETIC",
+      "ECHOPROOF_THRESHOLD_TUNED",
+      "ECHOPROOF_CORS_ORIGINS",
+      "ECHOPROOF_MAX_JOBS"
+    ],
+    "known_issues": [
+      "In-memory JobManager state resets when the backend server restarts.",
+      "Subprocess MP3 encoding requires system FFmpeg; falls back to simulated noise if missing."
+    ]
+  },
+  "api_catalog": [
+    {
+      "method": "GET",
+      "path": "/",
+      "purpose": "Root service metadata and documentation link.",
+      "handler": "app.main:root",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_headers": [],
+      "request_schema": {},
+      "response_schema": {
+        "name": "str",
+        "version": "str",
+        "description": "str",
+        "docs": "str"
+      },
+      "status_codes": [
+        200
+      ],
+      "side_effects": [],
+      "database_operations": [],
+      "external_calls": [],
+      "error_cases": [],
+      "source_files": [
+        "backend/app/main.py:70-78"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "purpose": "Check server operational health and model loading status.",
+      "handler": "app.api.routes:health",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_headers": [],
+      "request_schema": {},
+      "response_schema": {
+        "status": "str",
+        "version": "str",
+        "model_loaded": "bool",
+        "timestamp": "float"
+      },
+      "status_codes": [
+        200
+      ],
+      "side_effects": [],
+      "database_operations": [],
+      "external_calls": [],
+      "error_cases": [],
+      "source_files": [
+        "backend/app/api/routes.py:37-45"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/model",
+      "purpose": "Retrieve active deepfake detection model metadata, device, sample rate, thresholds, and label mappings.",
+      "handler": "app.api.routes:model_info",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_headers": [],
+      "request_schema": {},
+      "response_schema": {
+        "model_id": "str",
+        "model_type": "str",
+        "device": "str",
+        "sample_rate": "int",
+        "max_duration_sec": "int",
+        "chunk_duration_sec": "int",
+        "threshold_genuine": "float",
+        "threshold_synthetic": "float",
+        "threshold_is_tuned": "bool",
+        "label_mapping": "dict[int, str]",
+        "notes": "str"
+      },
+      "status_codes": [
+        200
+      ],
+      "side_effects": [],
+      "database_operations": [],
+      "external_calls": [],
+      "error_cases": [],
+      "source_files": [
+        "backend/app/api/routes.py:47-64"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/analyze",
+      "purpose": "Upload audio file and run complete deepfake detection inference, waveform downsampling, and spectrogram extraction.",
+      "handler": "app.api.routes:analyze_audio",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_headers": [
+        "Content-Type: multipart/form-data"
+      ],
+      "request_schema": {
+        "file": "UploadFile"
+      },
+      "response_schema": {
+        "job_id": "str",
+        "status": "JobStatus",
+        "verdict": "Verdict",
+        "primary_score": "float",
+        "score_label": "str",
+        "raw_scores": "dict[str, float] | null",
+        "chunk_results": "list[ChunkResult] | null",
+        "aggregation_method": "str",
+        "model_id": "str",
+        "model_device": "str",
+        "threshold_genuine": "float",
+        "threshold_synthetic": "float",
+        "threshold_is_tuned": "bool",
+        "audio_metadata": "AudioMetadata",
+        "waveform_data": "list[float]",
+        "spectrogram_data": "list[list[float]] | null",
+        "processing_time_sec": "float",
+        "warnings": "list[str]"
+      },
+      "status_codes": [
+        200,
+        422,
+        500,
+        503
+      ],
+      "side_effects": [
+        "Creates temporary audio file on disk, automatically deleted in finally block."
+      ],
+      "database_operations": [
+        "Registers analysis result in JobManager in-memory history."
+      ],
+      "external_calls": [
+        "PyTorch neural network forward pass."
+      ],
+      "error_cases": [
+        "503: Model is not initialized or failed to load.",
+        "422: Audio file format unsupported, size > 25MB, duration < 0.5s or > 300s, or audio is silent.",
+        "500: Unexpected internal inference failure."
+      ],
+      "source_files": [
+        "backend/app/api/routes.py:68-186"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/robustness",
+      "purpose": "Apply acoustic quality degradations to audio and measure score stability, score shift, and verdict crossings.",
+      "handler": "app.api.routes:robustness_test",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [],
+      "query_parameters": [
+        {
+          "name": "noise_snr_db",
+          "type": "float | null",
+          "description": "Additive Gaussian noise SNR in dB"
+        },
+        {
+          "name": "resample_rate",
+          "type": "int | null",
+          "description": "Narrowband resampling rate (e.g. 8000 for telephony)"
+        },
+        {
+          "name": "lowpass_cutoff",
+          "type": "float | null",
+          "description": "Lowpass filter cutoff in Hz"
+        },
+        {
+          "name": "gain_db",
+          "type": "float | null",
+          "description": "Volume gain attenuation/boost in dB"
+        },
+        {
+          "name": "mp3_bitrate",
+          "type": "int | null",
+          "description": "MP3 compression bitrate in kbps"
+        }
+      ],
+      "request_headers": [
+        "Content-Type: multipart/form-data"
+      ],
+      "request_schema": {
+        "file": "UploadFile"
+      },
+      "response_schema": {
+        "job_id": "str",
+        "status": "JobStatus",
+        "original_analysis": "AnalysisResult",
+        "transformation_results": "list[TransformationResult]",
+        "score_std": "float",
+        "max_score_change": "float",
+        "threshold_crossings": "int",
+        "processing_time_sec": "float"
+      },
+      "status_codes": [
+        200,
+        422,
+        500,
+        503
+      ],
+      "side_effects": [
+        "Creates temporary audio file on disk, cleaned up in finally block."
+      ],
+      "database_operations": [
+        "Registers robustness result in JobManager."
+      ],
+      "external_calls": [
+        "SciPy signal processing",
+        "FFmpeg subprocess (if available)"
+      ],
+      "error_cases": [
+        "503: Model not loaded.",
+        "422: Invalid audio file.",
+        "500: Transformation suite failure."
+      ],
+      "source_files": [
+        "backend/app/api/routes.py:189-320"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evaluation/run",
+      "purpose": "Spawn an asynchronous background job to evaluate model on a labeled dataset manifest.",
+      "handler": "app.api.routes:start_evaluation",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_headers": [
+        "Content-Type: application/json"
+      ],
+      "request_schema": {
+        "manifest": "DatasetManifest",
+        "max_samples": "int | null",
+        "random_seed": "int",
+        "validation_split": "float",
+        "speaker_disjoint": "bool"
+      },
+      "response_schema": {
+        "job_id": "str",
+        "status": "pending"
+      },
+      "status_codes": [
+        200,
+        503
+      ],
+      "side_effects": [
+        "Spawns background task",
+        "Writes experiment artifacts to research/results/{job_id}"
+      ],
+      "database_operations": [
+        "Creates job in JobManager."
+      ],
+      "external_calls": [],
+      "error_cases": [
+        "503: Model not loaded."
+      ],
+      "source_files": [
+        "backend/app/api/routes.py:324-348"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/evaluation/results",
+      "purpose": "List available evaluation experiments stored on disk.",
+      "handler": "app.api.routes:list_evaluation_results",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_headers": [],
+      "request_schema": {},
+      "response_schema": {
+        "results": "list[dict]"
+      },
+      "status_codes": [
+        200
+      ],
+      "side_effects": [],
+      "database_operations": [],
+      "external_calls": [],
+      "error_cases": [],
+      "source_files": [
+        "backend/app/api/routes.py:350-370"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/evaluation/results/{job_id}",
+      "purpose": "Retrieve full evaluation metrics, validation curves, and confusion matrices for a specific job.",
+      "handler": "app.api.routes:get_evaluation_result",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [
+        {
+          "name": "job_id",
+          "type": "str",
+          "description": "Evaluation Job ID"
+        }
+      ],
+      "query_parameters": [],
+      "request_headers": [],
+      "request_schema": {},
+      "response_schema": {
+        "job_id": "str",
+        "experiment_config": "dict",
+        "validation_metrics": "dict",
+        "test_metrics": "dict"
+      },
+      "status_codes": [
+        200,
+        404
+      ],
+      "side_effects": [],
+      "database_operations": [
+        "Reads from JobManager or disk research/results/{job_id}"
+      ],
+      "external_calls": [],
+      "error_cases": [
+        "404: Evaluation result not found."
+      ],
+      "source_files": [
+        "backend/app/api/routes.py:372-396"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/evaluation/export/{job_id}",
+      "purpose": "Download evaluation predictions as a CSV file.",
+      "handler": "app.api.routes:export_evaluation",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [
+        {
+          "name": "job_id",
+          "type": "str",
+          "description": "Evaluation Job ID"
+        }
+      ],
+      "query_parameters": [],
+      "request_headers": [],
+      "request_schema": {},
+      "response_schema": "StreamingResponse (text/csv)",
+      "status_codes": [
+        200,
+        404
+      ],
+      "side_effects": [],
+      "database_operations": [],
+      "external_calls": [],
+      "error_cases": [
+        "404: Predictions file not found."
+      ],
+      "source_files": [
+        "backend/app/api/routes.py:398-410"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{job_id}",
+      "purpose": "Poll status, execution progress, message, and result of an asynchronous job.",
+      "handler": "app.api.routes:get_job",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [
+        {
+          "name": "job_id",
+          "type": "str",
+          "description": "Job UUID"
+        }
+      ],
+      "query_parameters": [],
+      "request_headers": [],
+      "request_schema": {},
+      "response_schema": {
+        "job_id": "str",
+        "status": "JobStatus",
+        "job_type": "str",
+        "created_at": "float",
+        "progress": "float",
+        "message": "str",
+        "result": "Any | null"
+      },
+      "status_codes": [
+        200,
+        404
+      ],
+      "side_effects": [],
+      "database_operations": [
+        "Reads JobManager in-memory dictionary."
+      ],
+      "external_calls": [],
+      "error_cases": [
+        "404: Job not found."
+      ],
+      "source_files": [
+        "backend/app/api/routes.py:414-421"
+      ],
+      "implementation_status": "implemented"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs/{job_id}/events",
+      "purpose": "Retrieve sequential timeline of progress events emitted during job lifecycle.",
+      "handler": "app.api.routes:get_job_events",
+      "authentication_required": false,
+      "authorization_rules": [],
+      "path_parameters": [
+        {
+          "name": "job_id",
+          "type": "str",
+          "description": "Job UUID"
+        }
+      ],
+      "query_parameters": [],
+      "request_headers": [],
+      "request_schema": {},
+      "response_schema": {
+        "job_id": "str",
+        "events": "list[dict]"
+      },
+      "status_codes": [
+        200
+      ],
+      "side_effects": [],
+      "database_operations": [
+        "Reads JobManager event log."
+      ],
+      "external_calls": [],
+      "error_cases": [],
+      "source_files": [
+        "backend/app/api/routes.py:423-428"
+      ],
+      "implementation_status": "implemented"
+    }
+  ],
+  "database": {
+    "database_engine": "None (In-Memory Queue + Filesystem Disk Serialization)",
+    "database_configuration": [
+      "Job queue: collections.OrderedDict with capacity capped at 100 entries.",
+      "Disk storage for evaluation results: research/results/{job_id}/ storing experiment_config.json, validation_metrics.json, test_metrics.json, and predictions.csv.",
+      "Temporary upload storage: backend/temp_audio/ cleaned after every inference."
+    ],
+    "models_and_collections": [
+      {
+        "name": "JobInfo",
+        "type": "In-Memory Pydantic Object / Dictionary",
+        "purpose": "Tracks the lifecycle state and progress of asynchronous processing tasks.",
+        "fields": [
+          {
+            "name": "job_id",
+            "data_type": "string",
+            "required": true,
+            "default": null,
+            "constraints": [
+              "12-character hex UUID"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "status",
+            "data_type": "enum",
+            "required": true,
+            "default": "pending",
+            "constraints": [
+              "pending, processing, completed, failed, cancelled"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "job_type",
+            "data_type": "string",
+            "required": true,
+            "default": null,
+            "constraints": [
+              "analyze, robustness, evaluation"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "created_at",
+            "data_type": "float",
+            "required": true,
+            "default": "time.time()",
+            "constraints": [
+              "UNIX epoch timestamp"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "progress",
+            "data_type": "float",
+            "required": false,
+            "default": 0.0,
+            "constraints": [
+              "0.0 <= progress <= 1.0"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "message",
+            "data_type": "string",
+            "required": false,
+            "default": "",
+            "constraints": [],
+            "sensitive": false
+          },
+          {
+            "name": "result",
+            "data_type": "object",
+            "required": false,
+            "default": null,
+            "constraints": [],
+            "sensitive": false
+          }
+        ],
+        "primary_key": "job_id",
+        "foreign_keys": [],
+        "relationships": [],
+        "indexes": [
+          "OrderedDict hash lookup on job_id (O(1))"
+        ],
+        "uniqueness_constraints": [
+          "job_id"
+        ],
+        "source_files": [
+          "backend/app/schemas.py:192-200",
+          "backend/app/jobs/manager.py:20-84"
+        ]
+      },
+      {
+        "name": "DatasetManifestRow",
+        "type": "CSV Tabular Schema",
+        "purpose": "Represents labeled audio sample metadata for research training and benchmark evaluation.",
+        "fields": [
+          {
+            "name": "audio_file / filename",
+            "data_type": "string",
+            "required": true,
+            "default": null,
+            "constraints": [
+              "Valid path relative to audio_dir"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "label",
+            "data_type": "string",
+            "required": true,
+            "default": null,
+            "constraints": [
+              "bonafide/real/genuine or spoof/fake/synthetic"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "speaker_id / speaker",
+            "data_type": "string",
+            "required": false,
+            "default": null,
+            "constraints": [
+              "Identifies speaker for disjoint partitioning"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "attack_type / generator",
+            "data_type": "string",
+            "required": false,
+            "default": null,
+            "constraints": [
+              "TTS/VC generator model identifier"
+            ],
+            "sensitive": false
+          },
+          {
+            "name": "source / dataset",
+            "data_type": "string",
+            "required": false,
+            "default": null,
+            "constraints": [
+              "Source corpus origin"
+            ],
+            "sensitive": false
+          }
+        ],
+        "primary_key": "audio_file",
+        "foreign_keys": [],
+        "relationships": [],
+        "indexes": [],
+        "uniqueness_constraints": [
+          "audio_file filename per manifest"
+        ],
+        "source_files": [
+          "research/data/ground_truth_benchmark/metadata.csv",
+          "research/dataset.py:26-90"
+        ]
+      }
+    ],
+    "entity_relationships": [],
+    "migrations": [],
+    "seed_data": [
+      "Sample ground truth clips in backend/scratch_audio/ground_truth/ and research/data/ground_truth_benchmark/: 5 authentic human speech clips (LibriSpeech flac, LJSpeech wav) and 5 synthetic clips (DeepVoice 3 wav, FastSpeech 2 wav).",
+      "Frontend public samples: frontend/public/samples/sample_genuine_human.wav and sample_synthetic_tts.wav."
+    ],
+    "transactions_and_consistency": [
+      "Job state updates protected by single-threaded event loop and asyncio.Semaphore concurrency controls."
+    ],
+    "data_retention_and_deletion": [
+      "Temporary audio uploads in backend/temp_audio/ deleted immediately upon request completion in finally blocks.",
+      "Job history evicts oldest entries once total count exceeds MAX_JOB_HISTORY (100).",
+      "Evaluation results in research/results/ persist on disk until manually removed."
+    ],
+    "backup_and_recovery": [],
+    "known_data_issues": [
+      "Restarting the FastAPI server clears in-memory job status history (though disk evaluation runs remain in research/results/)."
+    ]
+  },
+  "authentication_and_security": {
+    "authentication_methods": [
+      "No authentication required; public open-access academic and forensic research workbench."
+    ],
+    "authorization_model": [
+      "Public open endpoints; no role-based access control (RBAC)."
+    ],
+    "session_management": [],
+    "token_management": [],
+    "oauth_flows": [],
+    "password_handling": [],
+    "encryption_mechanisms": [
+      "Client-side Web Audio API PCM WAV generation; HTTPS supported when deployed behind reverse proxy or Capacitor Android SSL configuration."
+    ],
+    "secret_management": [
+      "No secret keys, database passwords, or private tokens exist in the repository.",
+      ".env.example contains model IDs and numerical threshold configuration with no sensitive credentials."
+    ],
+    "input_validation": [
+      "File size verified against MAX_UPLOAD_SIZE_BYTES (25 MB).",
+      "File extension verified against whitelist: {.wav, .mp3, .flac, .m4a, .ogg, .opus}.",
+      "Empty files (0 bytes) rejected.",
+      "Audio duration checked against [0.5s, 300s].",
+      "Silent audio checked via Root-Mean-Square: RMS = sqrt(mean(waveform^2)) >= 1e-6.",
+      "Pydantic schemas validate all JSON payloads."
+    ],
+    "cors_configuration": [
+      "FastAPI CORSMiddleware configured via ECHOPROOF_CORS_ORIGINS.",
+      "Default origins: http://localhost:5173, http://127.0.0.1:5173, http://localhost:5174, http://127.0.0.1:5174, http://localhost:3000.",
+      "allow_credentials=True, allow_methods=['*'], allow_headers=['*']."
+    ],
+    "rate_limiting": [
+      "Concurrency limited via asyncio.Semaphore(MAX_CONCURRENT_JOBS) where default MAX_CONCURRENT_JOBS = 3."
+    ],
+    "file_upload_security": [
+      "Temporary upload filenames sanitized using alphanumeric filter with length truncated to 50 characters, combined with random UUID hex prefix.",
+      "Temporary files stored inside controlled TEMP_DIR (backend/temp_audio), not user-specifiable arbitrary directories.",
+      "Cleanup routine verifies target path resides strictly within TEMP_DIR before invoking unlink()."
+    ],
+    "security_headers": [],
+    "sensitive_data_handling": [
+      "Uploaded voice audio is considered biometric data; files are ephemeral and deleted from disk upon completion of inference."
+    ],
+    "identified_vulnerabilities": [
+      "Unauthenticated evaluation endpoint allows triggering background jobs if backend is exposed directly to the public internet.",
+      "Subprocess invocation in AudioTransformer.mp3_compress executes ffmpeg CLI; paths are strictly controlled, but running without sandbox in shared multi-tenant environments requires process isolation."
+    ],
+    "security_recommendations": [
+      "Place backend behind a reverse proxy (Nginx / Caddy) with TLS termination and rate limiting if exposing publicly.",
+      "Add API key authentication middleware (e.g. FastAPI Security HTTPBearer) for multi-user production deployments."
+    ]
+  },
+  "ai_ml_and_nlp": {
+    "applicable": true,
+    "problem_definition": "Binary audio classification estimating posterior probability P(synthetic | x) to detect machine-generated speech (TTS, VC, neural vocoding) vs genuine human voice.",
+    "models": [
+      {
+        "name": "MelodyMachine/Deepfake-audio-detection-V2 (Default Active Model)",
+        "type": "Fine-tuned Wav2Vec2ForSequenceClassification",
+        "architecture": "12-layer transformer encoder, 768 hidden dimension, 8 attention heads, ~94M parameters, linear classification head (768 -> 2).",
+        "pretraining": "Self-supervised masked audio modeling on LibriSpeech (facebook/wav2vec2-base), fine-tuned on ASVspoof 2019 LA.",
+        "label_mapping": "{0: 'fake', 1: 'real'} discovered dynamically via config.id2label."
+      },
+      {
+        "name": "EchoProofClassifier (Custom Research Architecture)",
+        "type": "Wav2Vec2 with Attentive Statistical Pooling (ASP)",
+        "architecture": "facebook/wav2vec2-base or facebook/wav2vec2-xls-r-300m backbone, CNN feature extractor frozen, lower encoder layers frozen (default 8 layers), AttentiveStatisticalPooling layer calculating attention-weighted temporal mean and standard deviation (768 -> 1536), projection head (1536 -> 256 -> 64 -> 2) with LayerNorm and Dropout.",
+        "label_mapping": "{0: 'bonafide', 1: 'spoof'}."
+      },
+      {
+        "name": "AcousticSpectralDetector (Safe Fallback)",
+        "type": "Deterministic neutral abstention adapter",
+        "architecture": "Returns fixed neutral score 0.5 with UNCERTAIN verdict and explicit warning when neural weights fail to load."
+      }
+    ],
+    "algorithms": [
+      "Polyphase FIR resampling via scipy.signal.resample and torchaudio.",
+      "Attentive Statistical Pooling (ASP) with Tanh attention scoring.",
+      "Focal Loss: FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t) with gamma=2.0, alpha=0.5.",
+      "Brent's root-finding method (scipy.optimize.brentq) to compute exact EER where FAR(tau) == FRR(tau).",
+      "Trapezoidal numerical integration for Area Under the ROC Curve (AUC) and Area Under Risk-Coverage (AURC)."
+    ],
+    "training_pipeline": [
+      "Configured in research/train.py.",
+      "Loads dataset via DeepfakeAudioDataset with real-time acoustic distortion data augmentation (probability p=0.5).",
+      "AdamW optimizer with learning rate 2e-5, weight decay 1e-4, linear warmup, and early stopping on validation EER.",
+      "Computes validation metrics each epoch; checkpoints best_model_eer.pt and calibrates genuine/synthetic decision boundaries."
+    ],
+    "inference_pipeline": [
+      "1. Load audio with soundfile/torchaudio.",
+      "2. Downmix multi-channel to mono.",
+      "3. Validate duration (0.5s - 300s) and non-silence (RMS >= 1e-6).",
+      "4. Resample to 16,000 Hz.",
+      "5. Segment into 4.0-second chunk windows (64,000 samples).",
+      "6. Preprocess via Hugging Face AutoFeatureExtractor (zero-mean unit-variance normalization).",
+      "7. Execute model forward pass under torch.no_grad().",
+      "8. Apply softmax over logits; extract P(spoof).",
+      "9. Average chunk scores; apply genuine (<=0.35) and synthetic (>=0.65) decision thresholds."
+    ],
+    "data_sources": [
+      "ASVspoof 2019 Logical Access (LA) and Deepfake (DF) corpora.",
+      "LibriSpeech ASR corpus (authentic clean human speech).",
+      "LJSpeech single-speaker authentic English speech.",
+      "DeepVoice 3 neural text-to-speech recordings.",
+      "FastSpeech 2 (cross-lingual Chinese/English) synthetic recordings."
+    ],
+    "preprocessing": [
+      "Mono downmix: x_mono(t) = (1/C) * sum(x_c(t)).",
+      "16 kHz resampling.",
+      "Waveform standardization: x_norm = (x - mean(x)) / (std(x) + 1e-7).",
+      "Sliding window chunking with chunk size = 4.0 seconds (64,000 samples)."
+    ],
+    "feature_engineering": [
+      "Self-supervised 768-dimensional latent representations extracted from wav2vec 2.0 transformer encoder.",
+      "Attentive Statistical Pooling (ASP) extracting temporal mean and standard deviation vectors across time frames."
+    ],
+    "prompts_and_templates": [],
+    "evaluation_metrics": [
+      "Equal Error Rate (EER): Threshold where False Acceptance Rate equals False Rejection Rate.",
+      "Area Under ROC Curve (ROC-AUC): Discrimination capability across all operational thresholds.",
+      "Classification Accuracy, Precision, Recall, F1-Score.",
+      "Type I Error (False Positive Rate / FPR): Human speech misclassified as synthetic.",
+      "Type II Error (False Negative Rate / FNR): Synthetic deepfake slipping past undetected.",
+      "Area Under the Risk-Coverage Curve (AURC): Selective prediction reliability under abstention.",
+      "95% Bootstrap Confidence Intervals: Percentile method over 1,000 resamples."
+    ],
+    "model_artifacts": [
+      "Hugging Face Hub cache: MelodyMachine/Deepfake-audio-detection-V2.",
+      "Research output: research/results/real_benchmark_run/benchmark_metrics.json.",
+      "Trained research checkpoint (optional): best_model_eer.pt configured via ECHOPROOF_CHECKPOINT."
+    ],
+    "confidence_scoring": [
+      "Primary score is the softmax-normalized activation for the spoof class: P(spoof) in [0.0, 1.0].",
+      "Uncertainty region defined between 0.35 and 0.65.",
+      "Stability score standard deviation computed across 11 perturbation transforms."
+    ],
+    "fallback_mechanisms": [
+      "AcousticSpectralDetector: If neural weights fail to load, model issues neutral score 0.5 and UNCERTAIN verdict."
+    ],
+    "limitations": [
+      "Unseen generator vulnerability: Models tested on unseen synthesis models (e.g. FastSpeech 2 cross-lingual) can experience false negatives.",
+      "Channel sensitivity: G.722 telephony downsampling and low-bitrate MP3 compression increase EER by up to 20 percentage points."
+    ],
+    "reproducibility_requirements": [
+      "Fixed random seeds (default seed 42) in dataset splitting, augmentation, and bootstrap evaluation.",
+      "Manifest CSV recording file paths, labels, and speaker identities.",
+      "Sample rate strictly locked to 16,000 Hz."
+    ]
+  },
+  "integrations": [
+    {
+      "name": "Hugging Face Hub",
+      "purpose": "Retrieving pretrained weights and tokenizer/feature extractor configs for wav2vec2 models.",
+      "integration_type": "External Model Registry (REST / Cache)",
+      "authentication_method": "Optional HF_TOKEN for private models; unauthenticated for public MelodyMachine/Deepfake-audio-detection-V2.",
+      "configuration_variable_names": [
+        "ECHOPROOF_MODEL_ID"
+      ],
+      "request_flow": [
+        "During lifespan startup, AutoModelForAudioClassification.from_pretrained queries Hugging Face Hub or reads local cache."
+      ],
+      "response_handling": [
+        "Caches PyTorch model weights locally in user .cache/huggingface directory."
+      ],
+      "retry_and_failure_handling": [
+        "If connection fails and no cached model exists, catches Exception, logs warning, and switches to AcousticSpectralDetector."
+      ],
+      "data_synced": [
+        "Model state dict weights and configuration JSON."
+      ],
+      "implementation_status": "implemented",
+      "source_files": [
+        "backend/app/models/detector.py:155-181"
+      ]
+    },
+    {
+      "name": "FFmpeg CLI",
+      "purpose": "Encoding audio to MP3 at specified bitrates and decoding back to measure codec resilience.",
+      "integration_type": "Local System Subprocess",
+      "authentication_method": null,
+      "configuration_variable_names": [],
+      "request_flow": [
+        "AudioTransformer writes temporary WAV, executes ffmpeg -y -i input.wav -b:a 64k output.mp3, and reads back output."
+      ],
+      "response_handling": [
+        "Decodes MP3 using SoundFile, resamples back to target sample rate."
+      ],
+      "retry_and_failure_handling": [
+        "Catches FileNotFoundError when FFmpeg is not installed, falls back to simulated quantization noise."
+      ],
+      "data_synced": [],
+      "implementation_status": "implemented",
+      "source_files": [
+        "backend/app/audio/transforms.py:81-120"
+      ]
+    },
+    {
+      "name": "Capacitor Mobile Runtime",
+      "purpose": "Compiles the web frontend into a native Android application wrapper.",
+      "integration_type": "Mobile Native Container",
+      "authentication_method": null,
+      "configuration_variable_names": [],
+      "request_flow": [
+        "npx cap copy copies frontend/dist to native Android asset directory."
+      ],
+      "response_handling": [
+        "Native webview renders the application with cleartext enabled for local LAN backend access."
+      ],
+      "retry_and_failure_handling": [],
+      "data_synced": [
+        "Frontend build bundle."
+      ],
+      "implementation_status": "implemented",
+      "source_files": [
+        "frontend/capacitor.config.json"
+      ]
+    }
+  ],
+  "environment_and_configuration": {
+    "runtime_versions": [
+      {
+        "runtime": "Python",
+        "version": "3.12.10 (3.10+ required)"
+      },
+      {
+        "runtime": "Node.js",
+        "version": "v20+ recommended"
+      },
+      {
+        "runtime": "npm",
+        "version": "10+"
+      }
+    ],
+    "environment_files_found": [
+      ".env.example",
+      "backend/.env (optional local override)",
+      "frontend/.gitignore"
+    ],
+    "required_variables": [
+      {
+        "name": "ECHOPROOF_MODEL_ID",
+        "purpose": "Hugging Face model identifier to load for speech deepfake inference.",
+        "required": false,
+        "secret": false,
+        "default_behavior": "Defaults to 'MelodyMachine/Deepfake-audio-detection-V2'.",
+        "used_in": [
+          "backend/app/config.py:18",
+          "backend/app/models/detector.py:133"
+        ]
+      },
+      {
+        "name": "ECHOPROOF_CHECKPOINT",
+        "purpose": "Absolute path to a local PyTorch checkpoint (best_model_eer.pt) trained via research/train.py.",
+        "required": false,
+        "secret": false,
+        "default_behavior": "If empty, loads Hugging Face model from ECHOPROOF_MODEL_ID.",
+        "used_in": [
+          "backend/app/config.py:19",
+          "backend/app/models/detector.py:152"
+        ]
+      },
+      {
+        "name": "ECHOPROOF_DEVICE",
+        "purpose": "Device on which PyTorch loads the neural network ('cpu' or 'cuda').",
+        "required": false,
+        "secret": false,
+        "default_behavior": "Defaults to 'cpu'.",
+        "used_in": [
+          "backend/app/config.py:20",
+          "backend/app/models/detector.py:134"
+        ]
+      },
+      {
+        "name": "ECHOPROOF_THRESHOLD_GENUINE",
+        "purpose": "Upper threshold for declaring a voice clip LIKELY_GENUINE.",
+        "required": false,
+        "secret": false,
+        "default_behavior": "Defaults to 0.35.",
+        "used_in": [
+          "backend/app/config.py:35",
+          "backend/app/models/detector.py:136"
+        ]
+      },
+      {
+        "name": "ECHOPROOF_THRESHOLD_SYNTHETIC",
+        "purpose": "Lower threshold for declaring a voice clip LIKELY_SYNTHETIC.",
+        "required": false,
+        "secret": false,
+        "default_behavior": "Defaults to 0.65.",
+        "used_in": [
+          "backend/app/config.py:36",
+          "backend/app/models/detector.py:137"
+        ]
+      },
+      {
+        "name": "ECHOPROOF_THRESHOLD_TUNED",
+        "purpose": "Boolean flag indicating whether thresholds were calibrated on validation data.",
+        "required": false,
+        "secret": false,
+        "default_behavior": "Defaults to false (triggers uncalibrated threshold warnings in responses).",
+        "used_in": [
+          "backend/app/config.py:37",
+          "backend/app/models/detector.py:138"
+        ]
+      },
+      {
+        "name": "ECHOPROOF_CORS_ORIGINS",
+        "purpose": "Comma-separated list of allowed HTTP origins for browser CORS access.",
+        "required": false,
+        "secret": false,
+        "default_behavior": "Defaults to 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000'.",
+        "used_in": [
+          "backend/app/config.py:40",
+          "backend/app/main.py:60"
+        ]
+      },
+      {
+        "name": "ECHOPROOF_MAX_JOBS",
+        "purpose": "Maximum concurrent background evaluation jobs permitted by asyncio.Semaphore.",
+        "required": false,
+        "secret": false,
+        "default_behavior": "Defaults to 3.",
+        "used_in": [
+          "backend/app/config.py:44",
+          "backend/app/jobs/manager.py:25"
+        ]
+      }
+    ],
+    "installation_prerequisites": [
+      "Python 3.10 or higher with pip.",
+      "Node.js 20+ with npm.",
+      "Optional: FFmpeg CLI on system PATH for native MP3 encoding."
+    ],
+    "dependency_installation": [
+      "Backend: cd backend && python -m pip install -r requirements.txt",
+      "Frontend: cd frontend && npm install"
+    ],
+    "database_setup": [
+      "No database configuration or migration required; in-memory queues and filesystem storage are self-initializing."
+    ],
+    "build_commands": [
+      "Frontend build: cd frontend && npm run build (outputs to frontend/dist/)"
+    ],
+    "development_commands": [
+      "Backend: cd backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+      "Frontend: cd frontend && npm run dev (starts on http://localhost:5173)"
+    ],
+    "test_commands": [
+      "Backend unit and integration tests: cd backend && python -m pytest tests/ -v",
+      "Research benchmark test run: python research/benchmark.py --manifest_csv research/data/ground_truth_benchmark/metadata.csv --audio_dir research/data/ground_truth_benchmark --output_dir research/results/test_run"
+    ],
+    "lint_and_format_commands": [
+      "Frontend TypeScript check: cd frontend && npx tsc --noEmit"
+    ],
+    "migration_commands": [],
+    "deployment_commands": [
+      "Production Backend: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2",
+      "Android Native Build: cd frontend && npm run build && npx cap copy && npx cap open android"
+    ],
+    "platform_specific_requirements": [
+      "Windows: Soundfile and Torchaudio install without native compilation; long paths supported.",
+      "Android: Cleartext network access enabled in capacitor.config.json (server.cleartext = true) to permit connecting to local backend during live demos."
+    ]
+  },
+  "deployment_and_operations": {
+    "deployment_architecture": "Decoupled SPA + REST API micro-architecture. Frontend served statically or through Vite dev server; backend served via Uvicorn ASGI process.",
+    "deployment_configuration_files": [
+      "frontend/vite.config.ts",
+      "frontend/capacitor.config.json"
+    ],
+    "services": [
+      {
+        "name": "EchoProof Backend API",
+        "host": "0.0.0.0",
+        "port": 8000,
+        "protocol": "HTTP/1.1",
+        "process": "uvicorn app.main:app"
+      },
+      {
+        "name": "EchoProof Frontend Client",
+        "host": "localhost",
+        "port": 5173,
+        "protocol": "HTTP/1.1",
+        "process": "vite"
+      }
+    ],
+    "build_process": [
+      "TypeScript type check (tsc), Tailwind v4 CSS bundling, Vite asset optimization, VitePWA service worker generation."
+    ],
+    "startup_process": [
+      "1. FastAPI lifespan startup event executes initialize_detector().",
+      "2. Wav2Vec2Detector loads model from local checkpoint (if configured) or Hugging Face Hub.",
+      "3. Detector discovers label indices from config.id2label.",
+      "4. Uvicorn begins accepting HTTP requests on port 8000.",
+      "5. Frontend mounts React DOM on http://localhost:5173, initiates health check to /api/v1/health."
+    ],
+    "network_and_ports": [
+      {
+        "service": "Backend API",
+        "port": 8000
+      },
+      {
+        "service": "Frontend Dev Server",
+        "port": 5173
+      }
+    ],
+    "domains_and_urls": [
+      "Local Frontend: http://localhost:5173",
+      "Local Backend: http://localhost:8000",
+      "Interactive Swagger API Docs: http://localhost:8000/docs",
+      "ReDoc API Docs: http://localhost:8000/redoc"
+    ],
+    "persistent_storage": [
+      "research/results/ (serialized benchmark reports and CSV evaluation predictions)",
+      "~/.cache/huggingface/ (downloaded neural network weights)"
+    ],
+    "health_checks": [
+      {
+        "endpoint": "GET /api/v1/health",
+        "expected_response": "{\"status\":\"ok\",\"version\":\"1.0.0\",\"model_loaded\":true}"
+      }
+    ],
+    "logging": [
+      "Structured timestamped stdout logs: HH:MM:SS | logger_name | LEVEL | message."
+    ],
+    "monitoring": [
+      "GET /api/v1/health for liveness and model availability.",
+      "GET /api/v1/jobs/{job_id} for progress tracking."
+    ],
+    "scaling_considerations": [
+      "Backend is stateless except for in-memory JobManager. Horizontal scaling across multiple Uvicorn workers or container replicas requires externalizing JobManager to Redis/Celery."
+    ],
+    "known_deployment_issues": [
+      "If Hugging Face is unreachable on first boot and weights are not cached, backend starts in fallback mode with neutral abstention."
+    ]
+  },
+  "testing_and_quality": {
+    "testing_frameworks": [
+      {
+        "name": "Pytest",
+        "version": "9.1.1",
+        "purpose": "Automated backend test execution."
+      },
+      {
+        "name": "Starlette TestClient",
+        "purpose": "FastAPI synchronous test fixture."
+      }
+    ],
+    "test_files": [
+      {
+        "path": "backend/tests/test_api.py",
+        "test_count": 4,
+        "coverage": "API endpoints: root, health, model, analyze."
+      },
+      {
+        "path": "backend/tests/test_audio_processor.py",
+        "test_count": 4,
+        "coverage": "Audio processor: file extension validation, size validation, waveform points generation, audio chunking."
+      },
+      {
+        "path": "backend/tests/test_detector_mapping.py",
+        "test_count": 5,
+        "coverage": "Detector: {0: fake, 1: real} convention, {0: bonafide, 1: spoof} convention, case insensitivity, score interpretation direction, ground truth sample inference."
+      },
+      {
+        "path": "backend/tests/test_metrics.py",
+        "test_count": 3,
+        "coverage": "Metrics: EER perfect separation, compute_metrics accuracy/AUC, risk-coverage and AURC calculation."
+      },
+      {
+        "path": "backend/tests/test_transforms.py",
+        "test_count": 4,
+        "coverage": "Transforms: Additive noise SNR, gain attenuation, Butterworth lowpass filtering, TransformationType enum execution."
+      }
+    ],
+    "unit_tests": [
+      "test_label_mapping_fake_real_convention",
+      "test_label_mapping_bonafide_spoof_convention",
+      "test_label_mapping_case_insensitivity",
+      "test_score_interpretation_direction",
+      "test_file_validation_extension",
+      "test_file_validation_size",
+      "test_waveform_data_generation",
+      "test_chunk_audio",
+      "test_compute_eer_perfect_separation",
+      "test_compute_metrics",
+      "test_risk_coverage_aurc",
+      "test_add_noise",
+      "test_gain_adjustment",
+      "test_lowpass_filter",
+      "test_apply_enum"
+    ],
+    "integration_tests": [
+      "test_root_endpoint",
+      "test_health_endpoint",
+      "test_model_endpoint",
+      "test_analyze_endpoint",
+      "test_ground_truth_samples"
+    ],
+    "end_to_end_tests": [],
+    "security_tests": [
+      "test_file_validation_size (rejects oversized uploads)",
+      "test_file_validation_extension (rejects arbitrary file types)"
+    ],
+    "test_commands": [
+      "cd backend && python -m pytest tests/"
+    ],
+    "last_verified_results": [
+      {
+        "execution_timestamp": "2026-10-24T01:35:35+05:30",
+        "passed": 20,
+        "failed": 0,
+        "skipped": 0,
+        "duration_sec": 44.57,
+        "status": "PASSED"
+      }
+    ],
+    "untested_critical_paths": [
+      "Live concurrent evaluation of datasets exceeding 10,000 audio files.",
+      "Capacitor Android native push notifications or hardware volume controls."
+    ],
+    "code_quality_issues": [
+      "StarletteDeprecationWarning regarding httpx with starlette.testclient in pytest output."
+    ],
+    "coverage_information": [
+      "Backend core modules (API routes, audio processor, transforms, detector label mapping, metrics) covered by 20 automated tests."
+    ]
+  },
+  "current_project_status": {
+    "overall_status": "working_production_prototype",
+    "working_features": [
+      "FastAPI backend running on port 8000 with interactive Swagger UI (/docs).",
+      "React 19 frontend running on port 5173 with hot reload and proxying.",
+      "Pretrained wav2vec 2.0 neural inference with automatic label mapping.",
+      "Single audio analysis with waveform envelope and Mel-spectrogram rendering.",
+      "Audio chunk window segmentation (4s) with arithmetic mean aggregation.",
+      "Live browser microphone recording via 16-bit PCM WAV encoding.",
+      "Forensic JSON dossier export.",
+      "Audio Robustness Lab with 11 perturbation filters and stability metric calculations.",
+      "Research evaluation pipeline with speaker-disjoint splitting and bootstrap CIs.",
+      "Progressive Web App (PWA) manifest and service worker registration.",
+      "Capacitor Android configuration for mobile wrapping.",
+      "20 automated backend unit and integration tests passing (100% pass rate)."
+    ],
+    "partially_working_features": [
+      "MP3 codec compression transform: works natively when FFmpeg CLI is present on PATH; falls back to simulated noise quantization if absent."
+    ],
+    "broken_features": [],
+    "unverified_features": [
+      "Multi-GPU distributed training with research/train.py (only single-device CPU/CUDA verified)."
+    ],
+    "known_bugs": [
+      "None currently active in codebase. Previous label inversion bug and browser WebM recording decode bug were systematically diagnosed and resolved."
+    ],
+    "recent_changes": [
+      "Created missing frontend/src/lib/types.ts and frontend/src/lib/api.ts which previously blocked frontend compilation.",
+      "Verified frontend-backend communication and validated UI rendering via browser subagent."
+    ],
+    "blocking_issues": [],
+    "technical_debt": [
+      "In-memory JobManager does not survive backend process restarts.",
+      "Sample datasets in research/data/ contain small subsets (10-40 clips); training production models requires downloading full SpeechFake/ASVspoof corpora.",
+      "Audio recording currently uses ScriptProcessorNode instead of newer AudioWorklet API."
+    ],
+    "performance_concerns": [
+      "CPU inference for audio files longer than 60 seconds (15+ chunks) can take 5-10 seconds per file without GPU acceleration."
+    ],
+    "security_concerns": [
+      "Backend API endpoints are currently unauthenticated; suitable for local and controlled lab use, but requires API token middleware for public internet exposure."
+    ]
+  },
+  "development_history": {
+    "major_milestones": [
+      {
+        "date": "2026-10-20",
+        "milestone": "Initial Commit: Full-stack speech deepfake detection & robustness framework."
+      },
+      {
+        "date": "2026-10-20",
+        "milestone": "Audio Recording Fix: Implemented direct 16-bit PCM WAV encoder in browser to resolve WebM decode failures."
+      },
+      {
+        "date": "2026-10-20",
+        "milestone": "Detector Label Mapping Resolution: Fixed alphabetical label inversion for Hugging Face AudioFolder models ({0: fake, 1: real}) and added ground-truth test suite."
+      },
+      {
+        "date": "2026-10-20",
+        "milestone": "Documentation: Added complete 337-line technical specification (DOCUMENTATION.md)."
+      },
+      {
+        "date": "2026-10-23",
+        "milestone": "Research Checkpoint Connection: Connected ECHOPROOF_CHECKPOINT to backend inference and added safe neutral abstention."
+      },
+      {
+        "date": "2026-10-23",
+        "milestone": "Frontend API Client Restoration: Created types.ts and api.ts restoring web dashboard connectivity."
+      }
+    ],
+    "important_design_decisions": [
+      "Adoption of wav2vec 2.0 self-supervised representations over traditional hand-engineered acoustic features.",
+      "Dynamic label mapping discovery from model config rather than fixed index assumptions.",
+      "Safe neutral abstention (UNCERTAIN verdict) in place of spectral heuristics when neural weights cannot load.",
+      "Speaker-disjoint dataset splitting to eliminate biometric data leakage."
+    ],
+    "resolved_problems": [
+      {
+        "issue": "Hugging Face Alphabetical Label Inversion Bug",
+        "description": "Standard ASVspoof models map 0 to bonafide and 1 to spoof. Hugging Face AudioFolder sorted directory names alphabetically: 0: fake, 1: real. The detector initially assumed index 1 meant spoof, causing real human voice to score 0.999 (fake) and synthetic voice to score 0.001 (real).",
+        "resolution": "Implemented _find_spoof_index() and _find_bonafide_index() in Wav2Vec2Detector to inspect semantic label text dynamically. Added test_detector_mapping.py confirming correct class direction.",
+        "evidence": "backend/app/models/detector.py:234-246, backend/tests/test_detector_mapping.py:31-82"
+      },
+      {
+        "issue": "Browser Audio Recording Decoding Failure",
+        "description": "Standard MediaRecorder recorded WebM/Opus audio. Certain browsers and soundfile backends failed to parse WebM container headers during file load.",
+        "resolution": "Wrote custom pcmToWav() function in AnalyzePage.tsx using ScriptProcessorNode to construct standard 16-bit PCM RIFF WAVE headers directly in the browser.",
+        "evidence": "frontend/src/pages/AnalyzePage.tsx:58-92"
+      },
+      {
+        "issue": "Synthetic Sine Wave Demo Artifact",
+        "description": "The client-side demo button initially generated a 220 Hz mathematical sine wave beep and labeled it genuine voice. The neural network correctly classified the electronic tone as 100% artificial.",
+        "resolution": "Replaced the mathematical oscillator with genuine human speech recordings from LibriSpeech and LJSpeech in scratch_audio/ground_truth/.",
+        "evidence": "DOCUMENTATION.md:300-304"
+      },
+      {
+        "issue": "Missing Frontend API Library Files",
+        "description": "The repository previously lacked frontend/src/lib/types.ts and frontend/src/lib/api.ts, preventing the Vite build and causing blank pages on startup.",
+        "resolution": "Created type-safe types.ts mirroring Pydantic schemas and api.ts implementing fetch wrappers for all endpoints.",
+        "evidence": "frontend/src/lib/types.ts, frontend/src/lib/api.ts"
+      }
+    ],
+    "unresolved_problems": [
+      "JobManager state is strictly in-memory and does not survive server restarts.",
+      "Public training requires downloading multi-gigabyte external datasets (SpeechFake/ASVspoof) not bundled in Git."
+    ],
+    "available_git_history": "6 commits available on branch main: dd0f638, d506bbb, 8c2ada8, 1c46435, 9b29d8b, aedb743.",
+    "historical_claims_evidence": [
+      "Git commit history verified via git log --oneline.",
+      "Empirical benchmark metrics verified in research/results/real_benchmark_run/benchmark_results.md."
+    ]
+  },
+  "pending_work": {
+    "unfinished_features": [],
+    "critical_fixes": [],
+    "recommended_improvements": [
+      "Migrate browser audio recording from deprecated ScriptProcessorNode to modern AudioWorklet.",
+      "Persist JobManager job history and evaluation tasks to SQLite or Redis instead of an in-memory dictionary.",
+      "Support batch audio file upload for bulk folder scanning in the Analyze tab.",
+      "Add interactive confusion matrix cell filtering in the Research tab."
+    ],
+    "refactoring_opportunities": [
+      "Extract transformation parameter state in RobustnessPage into a dedicated custom hook (useRobustnessLab).",
+      "Consolidate metric computation between app.evaluation.pipeline and research.benchmark into a single shared utility package."
+    ],
+    "testing_gaps": [
+      "Add Playwright or Cypress end-to-end tests for browser UI recording and drag-and-drop workflows.",
+      "Add test coverage for research/train.py training epoch loop using a mock dataloader."
+    ],
+    "security_improvements": [
+      "Implement bearer token or API key authentication for production deployments.",
+      "Apply rate limiting to inference and evaluation endpoints (e.g. slowapi)."
+    ],
+    "performance_improvements": [
+      "Implement ONNX Runtime export for wav2vec 2.0 to accelerate CPU inference by 2-3x.",
+      "Implement client-side audio downsampling before uploading to reduce network bandwidth on mobile connections."
+    ],
+    "deployment_tasks": [
+      "Create Dockerfile and docker-compose.yml for containerized one-click deployment.",
+      "Set up GitHub Actions CI workflow to run pytest and frontend build on every push."
+    ],
+    "prioritized_roadmap": [
+      {
+        "priority": "P1",
+        "task": "Dockerize the full application with Dockerfile and docker-compose.yml",
+        "reason": "Simplifies cross-platform evaluation and college demonstration setup without manual environment configuration.",
+        "dependencies": [
+          "backend/requirements.txt",
+          "frontend/package.json"
+        ],
+        "acceptance_criteria": [
+          "docker-compose up launches backend on :8000 and frontend on :5173",
+          "All 20 pytest tests pass inside container"
+        ],
+        "estimated_complexity": "low",
+        "evidence": [
+          "README.md:99-115"
+        ]
+      },
+      {
+        "priority": "P2",
+        "task": "Export wav2vec 2.0 backbone to ONNX / OpenVINO for high-speed CPU inference",
+        "reason": "Reduces inference latency for multi-chunk audio files on consumer laptops without dedicated GPUs.",
+        "dependencies": [
+          "backend/app/models/detector.py"
+        ],
+        "acceptance_criteria": [
+          "Inference latency reduced by > 40% on CPU",
+          "Scores match PyTorch float32 within 1e-4 tolerance"
+        ],
+        "estimated_complexity": "medium",
+        "evidence": [
+          "backend/app/models/detector.py:261-286"
+        ]
+      },
+      {
+        "priority": "P3",
+        "task": "Migrate in-memory JobManager to SQLite persistence",
+        "reason": "Allows evaluation jobs and history to survive server restarts.",
+        "dependencies": [
+          "backend/app/jobs/manager.py"
+        ],
+        "acceptance_criteria": [
+          "Restarting uvicorn preserves job history in GET /api/v1/evaluation/results"
+        ],
+        "estimated_complexity": "medium",
+        "evidence": [
+          "backend/app/jobs/manager.py:20-45"
+        ]
+      },
+      {
+        "priority": "P4",
+        "task": "Migrate AnalyzePage microphone capture to AudioWorklet",
+        "reason": "ScriptProcessorNode is deprecated in modern Web Audio specifications.",
+        "dependencies": [
+          "frontend/src/pages/AnalyzePage.tsx"
+        ],
+        "acceptance_criteria": [
+          "Microphone recording works smoothly on Chrome, Firefox, and Safari without audio glitching"
+        ],
+        "estimated_complexity": "medium",
+        "evidence": [
+          "frontend/src/pages/AnalyzePage.tsx:94-135"
+        ]
+      }
+    ]
+  },
+  "developer_workflows": {
+    "how_to_run_locally": [
+      "1. Clone repository: git clone https://github.com/AdityaPingle25/EchoProof.git && cd EchoProof",
+      "2. Set up Backend: cd backend && python -m pip install -r requirements.txt",
+      "3. Launch Backend: python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+      "4. Set up Frontend: In a second terminal, cd frontend && npm install",
+      "5. Launch Frontend: npm run dev",
+      "6. Open browser at http://localhost:5173. Backend docs available at http://localhost:8000/docs."
+    ],
+    "how_to_debug": [
+      "Check backend console output for structured error traces: uvicorn app.main:app.",
+      "Verify model loading and device via GET http://localhost:8000/api/v1/model.",
+      "Check browser developer console (F12) for network requests to /api/v1/....",
+      "Test backend in isolation using pytest: pytest tests/test_api.py -v -s."
+    ],
+    "how_to_add_a_feature": [
+      "Backend: Define request/response Pydantic models in backend/app/schemas.py.",
+      "Implement domain business logic in backend/app/audio/ or backend/app/models/.",
+      "Expose endpoint in backend/app/api/routes.py.",
+      "Write unit/integration test in backend/tests/.",
+      "Frontend: Add corresponding TypeScript interface in frontend/src/lib/types.ts.",
+      "Add API method in frontend/src/lib/api.ts.",
+      "Integrate into UI page (AnalyzePage.tsx, RobustnessPage.tsx, etc.)."
+    ],
+    "how_to_add_an_api": [
+      "1. Open backend/app/api/routes.py.",
+      "2. Define route function with @router.get(...) or @router.post(...).",
+      "3. Add type annotations and response_model from app.schemas.",
+      "4. Add unit test in backend/tests/test_api.py."
+    ],
+    "how_to_change_the_database": [
+      "Project does not use a SQL database. To extend in-memory JobManager fields, update JobInfo in app/schemas.py and dictionary mutations in app/jobs/manager.py."
+    ],
+    "how_to_run_tests": [
+      "Backend pytest: cd backend && python -m pytest tests/ -v",
+      "Frontend typecheck: cd frontend && npx tsc --noEmit",
+      "Frontend production build validation: cd frontend && npm run build"
+    ],
+    "how_to_deploy": [
+      "Web Deployment: Build frontend (cd frontend && npm run build) and serve dist/ with Nginx or Caddy. Run backend using uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2.",
+      "Mobile Deployment: cd frontend && npm run build && npx cap copy && npx cap open android. Open in Android Studio and build APK."
+    ],
+    "common_errors_and_solutions": [
+      {
+        "error": "HTTP 503: Model not loaded. Backend is starting up.",
+        "cause": "FastAPI is still downloading or initializing model weights from Hugging Face.",
+        "solution": "Wait 10-30 seconds on first launch while weights download, or check internet access."
+      },
+      {
+        "error": "HTTP 422: Audio too short (0.20s). Minimum: 0.5s.",
+        "cause": "Uploaded audio duration is less than 0.5 seconds.",
+        "solution": "Provide an audio recording between 0.5 and 300 seconds."
+      },
+      {
+        "error": "HTTP 422: Audio appears to be silent.",
+        "cause": "Root-Mean-Square (RMS) amplitude is below 1e-6.",
+        "solution": "Verify microphone input level or ensure audio file contains active speech."
+      },
+      {
+        "error": "Frontend shows 'Disconnected' in top right.",
+        "cause": "Backend server on port 8000 is not running or blocked by firewall.",
+        "solution": "Ensure uvicorn app.main:app is running on port 8000. Verify API URL in About tab."
+      }
+    ]
+  },
+  "ai_handoff_instructions": {
+    "project_context_summary": "EchoProof AI is a full-stack speech deepfake detection research platform coupling a FastAPI backend, fine-tuned wav2vec 2.0 neural inference with attentive statistical pooling, an 11-condition acoustic robustness testing lab, leak-free speaker-disjoint dataset benchmarking, and a React 19 glassmorphic interface.",
+    "critical_facts": [
+      "The default model MelodyMachine/Deepfake-audio-detection-V2 maps index 0 to 'fake' and index 1 to 'real'. Never assume index 1 is fake. The codebase dynamically queries model.config.id2label to identify classes.",
+      "The backend must never generate a 'Genuine' verdict from spectral heuristics when neural weights fail. It must abstain with an 'Uncertain' verdict and an explicit warning.",
+      "The sample clips in research/data/ are for testing and UI demonstration only. They must not be used to claim production accuracy or trained on as an ASVspoof replacement.",
+      "Target sample rate is strictly 16,000 Hz. AudioProcessor downmixes to mono and applies polyphase resampling.",
+      "Audio exceeding 4.0s duration is chunked into 4.0s windows and aggregated via arithmetic mean.",
+      "Evaluation requires disjoint speakers between validation and test splits to prevent biometric data leakage."
+    ],
+    "important_file_paths": [
+      "backend/app/main.py (FastAPI entry point & lifespan)",
+      "backend/app/config.py (Paths, thresholds, model settings)",
+      "backend/app/schemas.py (Pydantic v2 data models)",
+      "backend/app/api/routes.py (All API endpoints)",
+      "backend/app/models/detector.py (Inference adapter & label mapping)",
+      "backend/app/audio/processor.py (Audio ingestion, mono conversion, 16kHz resampling, chunking)",
+      "backend/app/audio/transforms.py (Audio degradation filters)",
+      "backend/app/jobs/manager.py (Asynchronous bounded job queue)",
+      "backend/app/evaluation/pipeline.py (Evaluation, EER, and bootstrap CIs)",
+      "frontend/src/App.tsx (Frontend root and routing)",
+      "frontend/src/lib/api.ts (Frontend API client)",
+      "frontend/src/lib/types.ts (Frontend TypeScript contracts)",
+      "research/train.py (Model training script with Focal Loss & ASP)",
+      "research/benchmark.py (Research benchmark script generating LaTeX/Markdown tables)"
+    ],
+    "architectural_invariants": [
+      "Inference scores returned by detector.score() are always P(spoof) in [0.0, 1.0].",
+      "Decision boundary rule: P(spoof) <= THRESHOLD_GENUINE (0.35) -> LIKELY_GENUINE; P(spoof) >= THRESHOLD_SYNTHETIC (0.65) -> LIKELY_SYNTHETIC; otherwise UNCERTAIN.",
+      "Temporary upload files in backend/temp_audio/ must always be cleaned up in a finally block.",
+      "JobManager capacity must remain bounded to prevent memory leaks."
+    ],
+    "coding_conventions": [
+      "Python: Use type annotations, Pydantic models for data schemas, and standard logging instead of raw print statements.",
+      "TypeScript: Strict typing; interfaces in frontend/src/lib/types.ts must stay synchronized with backend backend/app/schemas.py.",
+      "CSS: Use design tokens defined in frontend/src/index.css (e.g. var(--accent), var(--bg-card), var(--text-primary))."
+    ],
+    "constraints_for_future_changes": [
+      "Do not hardcode class index mappings for audio classification models; always inspect label text strings.",
+      "Do not replace neutral model abstention with naive heuristic classification.",
+      "Do not remove speaker-disjoint splitting from the evaluation pipeline."
+    ],
+    "known_failure_patterns": [
+      "Running uvicorn without virtual environment dependencies will fail with ModuleNotFoundError for soundfile or transformers.",
+      "Testing microphone recording on non-localhost/non-HTTPS origins in Chrome will fail due to WebRTC security policies."
+    ],
+    "recommended_first_actions_for_an_ai": [
+      "1. Verify both servers are running: check GET http://localhost:8000/api/v1/health and GET http://localhost:5173.",
+      "2. Run the pytest suite (cd backend && python -m pytest tests/) to ensure all 20 tests pass.",
+      "3. Verify that frontend/src/lib/types.ts and api.ts are intact before making frontend modifications."
+    ],
+    "questions_requiring_developer_input": [
+      "What external storage backend (PostgreSQL, Redis, or S3) is preferred for multi-tenant production deployment?",
+      "Which specific GPU cluster or cloud provider will be used for training Wav2Vec2-XLS-R on the multi-terabyte SpeechFake corpus?"
+    ]
+  },
+  "evidence_and_confidence": {
+    "evidence_conventions": [
+      "Direct code inspections reference relative repository file paths and exact line numbers.",
+      "Runtime claims are grounded in actual execution of pytest tests/, git log, and running server inspection."
+    ],
+    "claims_requiring_verification": [],
+    "high_confidence_findings": [
+      {
+        "finding": "Backend framework is FastAPI 0.115+ running on Uvicorn.",
+        "evidence": "backend/requirements.txt:1-2, backend/app/main.py:11-55"
+      },
+      {
+        "finding": "Active default deepfake model is MelodyMachine/Deepfake-audio-detection-V2 with dynamic label mapping.",
+        "evidence": "backend/app/config.py:18, backend/app/models/detector.py:155-167"
+      },
+      {
+        "finding": "Label mapping maps index 0 to fake and index 1 to real for MelodyMachine.",
+        "evidence": "backend/app/models/detector.py:234-246, backend/tests/test_detector_mapping.py:31-38"
+      },
+      {
+        "finding": "Audio processing strictly enforces 16,000 Hz sample rate, mono downmixing, 25MB max upload, and 4s chunking.",
+        "evidence": "backend/app/config.py:21-30, backend/app/audio/processor.py:41-125"
+      },
+      {
+        "finding": "Pytest suite contains 20 passing unit and integration tests.",
+        "evidence": "backend/tests/, pytest execution output in task log"
+      },
+      {
+        "finding": "Frontend is built with React 19.3.1, TypeScript, Vite 8, Framer Motion, and Tailwind CSS v4.",
+        "evidence": "frontend/package.json:11-33"
+      },
+      {
+        "finding": "Client audio recorder encodes directly to 16-bit PCM WAV.",
+        "evidence": "frontend/src/pages/AnalyzePage.tsx:58-92"
+      },
+      {
+        "finding": "Research benchmark empirical results show 0.00% clean EER, degrading to 20.00% under G.722 and MP3.",
+        "evidence": "research/results/real_benchmark_run/benchmark_results.md:1-45"
+      }
+    ],
+    "medium_confidence_findings": [
+      {
+        "finding": "FFmpeg subprocess fallback works reliably on systems lacking FFmpeg by injecting simulated quantization noise.",
+        "evidence": "backend/app/audio/transforms.py:114-117"
+      }
+    ],
+    "low_confidence_findings": []
+  }
+}
